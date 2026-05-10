@@ -1,12 +1,22 @@
 .app-shell {
+  width: 100%;
+  max-width: 100vw;
   min-height: 100svh;
   display: grid;
   place-items: center;
+  gap: 28px;
   padding: 32px 20px;
   box-sizing: border-box;
+  overflow-x: hidden;
   background:
     linear-gradient(180deg, rgba(15, 118, 110, 0.08), transparent 40%),
     var(--bg);
+}
+
+.app-shell.has-data {
+  align-content: start;
+  place-items: stretch;
+  padding: 28px;
 }
 
 .upload-panel {
@@ -15,7 +25,13 @@
   flex-direction: column;
   align-items: center;
   gap: 18px;
+  justify-self: center;
   text-align: center;
+}
+
+.has-data .upload-panel {
+  width: min(1180px, 100%);
+  gap: 10px;
 }
 
 .eyebrow {
@@ -33,6 +49,12 @@
   font-size: clamp(2.5rem, 8vw, 5.75rem);
   line-height: 0.96;
   letter-spacing: 0;
+}
+
+.has-data .upload-panel h1 {
+  max-width: 840px;
+  font-size: clamp(2rem, 4vw, 3.4rem);
+  line-height: 1;
 }
 
 .subcopy {
@@ -66,19 +88,146 @@
   border-color: #115e59;
 }
 
+.upload-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .file-status {
   color: var(--text-h);
   font-size: 0.95rem;
+}
+
+.audit-progress {
+  width: min(720px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(15, 118, 110, 0.22);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.76);
+  text-align: left;
+}
+
+.has-data .audit-progress {
+  width: min(1180px, 100%);
+}
+
+.audit-progress-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.audit-progress-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  color: var(--text);
+  font-size: 0.92rem;
 }
 
 .error-alert {
   max-width: min(520px, 100%);
 }
 
-@media (max-width: 560px) {
-  .app-shell {
+.table-section {
+  width: min(1280px, 100%);
+  max-width: 100%;
+  min-width: 0;
+  justify-self: center;
+}
+
+.table-section .p-datatable {
+  width: 100%;
+  max-width: 100%;
+  text-align: left;
+}
+
+.table-section .p-datatable-wrapper {
+  max-width: 100%;
+  overflow-x: visible;
+}
+
+.video-table .p-datatable-table {
+  width: 100%;
+  table-layout: fixed;
+}
+
+.table-section .p-datatable-header {
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+
+.table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.table-header h2 {
+  margin: 0 0 4px;
+}
+
+.table-header p {
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.table-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.table-actions .p-inputtext {
+  width: min(280px, 42vw);
+}
+
+.cell-stack {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  line-height: 1.35;
+}
+
+.cell-title {
+  color: var(--text-h);
+  font-weight: 700;
+}
+
+.cell-muted,
+.cell-path {
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.cell-path,
+.file-cell,
+.issue-cell,
+.table-section .p-datatable-tbody > tr > td {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.issue-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+@media (max-width: 760px) {
+  .app-shell,
+  .app-shell.has-data {
     align-items: start;
-    padding-top: 76px;
+    padding: 24px 16px;
   }
 
   .upload-panel {
@@ -88,5 +237,38 @@
   .upload-button.p-button {
     width: 100%;
     justify-content: center;
+  }
+
+  .upload-actions {
+    width: 100%;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .upload-actions .p-fileupload,
+  .upload-actions .p-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .audit-progress-header,
+  .audit-progress-details {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .table-header,
+  .table-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .table-actions .p-inputtext,
+  .table-actions .p-button {
+    width: 100%;
+  }
+
+  .table-section .p-datatable-tbody > tr > td {
+    border-width: 0 0 1px;
   }
 }
