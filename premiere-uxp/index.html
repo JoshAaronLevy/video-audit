@@ -9,7 +9,7 @@
     <main class="panel">
       <header class="panel-header">
         <p class="eyebrow">Video Audit</p>
-        <h1>Premiere Bridge</h1>
+        <h2>Premiere Bridge</h2>
       </header>
 
       <section class="status-card" aria-live="polite">
@@ -29,12 +29,15 @@
           <span class="status-label">Heartbeat</span>
           <span id="heartbeatStatus" class="status-value">Not written</span>
         </div>
-      </section>
-
-      <section class="actions">
-        <button id="selectBridgeFolder" type="button">Select bridge folder</button>
-        <button id="selectOutputFolder" type="button">Select output folder</button>
-        <button id="processNow" type="button">Process now</button>
+        <div class="status-row">
+          <sp-button id="selectBridgeFolder">Select bridge folder</sp-button>
+        </div>
+        <div class="status-row">
+          <sp-button id="selectOutputFolder">Select output folder</sp-button>
+        </div>
+        <div class="status-row">
+          <sp-button id="processNow">Process now</sp-button>
+        </div>
       </section>
 
       <section class="activity-card">

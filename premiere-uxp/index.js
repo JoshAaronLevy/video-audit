@@ -1196,6 +1196,10 @@ function startTimers() {
 
   if (!state.requestTimer) {
     state.requestTimer = setInterval(() => {
+      if (!state.bridgeFolder || !state.outputFolder) {
+        return;
+      }
+
       processRequests().catch((error) => {
         setLastActivity(error.message || "Unable to process Premiere request.");
       });

@@ -28,7 +28,7 @@ body {
 .eyebrow {
   margin: 0;
   color: #67e8f9;
-  font-size: 0.78rem;
+  font-size: 1.5rem;
   font-weight: 700;
   letter-spacing: 0;
   text-transform: uppercase;
@@ -85,7 +85,7 @@ h2 {
   gap: 8px;
 }
 
-button {
+sp-button {
   width: 100%;
   min-height: 32px;
   border: 1px solid #4b5563;
@@ -95,11 +95,11 @@ button {
   font: inherit;
 }
 
-button:hover {
+sp-button:hover {
   background: #3f4f63;
 }
 
-button:disabled {
+sp-button:disabled {
   color: #8c96a3;
   background: #2c333d;
 }
