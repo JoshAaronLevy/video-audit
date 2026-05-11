@@ -136,6 +136,27 @@
   max-width: min(520px, 100%);
 }
 
+.premiere-status-section {
+  width: min(1180px, 90vw);
+  justify-self: center;
+}
+
+.premiere-status-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+  text-align: left;
+}
+
+.premiere-status-message {
+  margin: 0;
+}
+
 .table-section {
   width: 90vw;
   max-width: 100%;
@@ -307,6 +328,16 @@
   .audit-progress-details {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .premiere-status-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .premiere-status-panel .p-button {
+    width: 100%;
+    justify-content: center;
   }
 
   .table-header,

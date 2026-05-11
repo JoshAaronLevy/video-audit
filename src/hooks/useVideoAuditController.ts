@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { Toast } from 'primereact/toast'
 import {
@@ -22,6 +22,10 @@ import type {
   StoredVideoData,
   VideoRow,
 } from '../types/video'
+import type {
+  PremierePreset,
+  PremiereStatusResponse,
+} from '../types/premiere'
 
 export function useVideoAuditController() {
   const [initialData] = useState<StoredVideoData | null>(() =>
@@ -47,17 +51,68 @@ export function useVideoAuditController() {
     useState<FolderPathTestSummary | null>(null)
   const [auditProgress, setAuditProgress] =
     useState<AuditProgress>(initialAuditProgress)
+  const [premiereStatus, setPremiereStatus] =
+    useState<PremiereStatusResponse | null>(null)
+  const [isPremiereStatusLoading, setIsPremiereStatusLoading] = useState(false)
+  const [premierePresets, setPremierePresets] = useState<PremierePreset[]>([])
 
   const closeAuditEventSource = () => {
     auditEventSourceRef.current?.close()
     auditEventSourceRef.current = null
   }
 
+  const checkPremiereStatus = useCallback(async () => {
+    setIsPremiereStatusLoading(true)
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/premiere/status`)
+
+      if (!response.ok) {
+        throw new Error('Unable to check Premiere bridge status.')
+      }
+
+      const payload = (await response.json()) as PremiereStatusResponse
+
+      setPremiereStatus(payload)
+      setPremierePresets(Array.isArray(payload.presets) ? payload.presets : [])
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error
+          ? caughtError.message
+          : 'Unable to check Premiere bridge status.'
+
+      setPremiereStatus({
+        status: 'error',
+        message,
+        bridge: { connected: false },
+      })
+      setPremierePresets([])
+      toast.current?.show({
+        severity: 'error',
+        summary: 'Premiere status failed',
+        detail: message,
+        life: 5200,
+      })
+    } finally {
+      setIsPremiereStatusLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     return () => {
       closeAuditEventSource()
     }
   }, [])
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void checkPremiereStatus()
+    }, 0)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [checkPremiereStatus])
 
   const updateAuditProgress = (
     payload: AuditProgressPayload,
@@ -415,13 +470,17 @@ export function useVideoAuditController() {
     folderPathTestSummary,
     globalFilter,
     handleClearData,
+    checkPremiereStatus,
     handleFolderPathSelect,
     handleOpenFolderPathTest,
     handleRefreshData,
     isAuditActive,
     isAuditVisible,
     isPersisted,
+    isPremiereStatusLoading,
     isTableLoading,
+    premierePresets,
+    premiereStatus,
     canRefresh: Boolean(storedPayload),
     setGlobalFilter,
     toast,

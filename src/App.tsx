@@ -4,6 +4,7 @@ import { Button } from 'primereact/button'
 import 'primereact/resources/themes/lara-light-cyan/theme.css'
 import 'primereact/resources/primereact.min.css'
 import 'primeflex/primeflex.css'
+import { PremiereStatusBanner } from './components/PremiereStatusBanner'
 import { UploadPanel } from './components/UploadPanel'
 import { VideoTable } from './components/VideoTable'
 import { useVideoAuditController } from './hooks/useVideoAuditController'
@@ -14,6 +15,7 @@ function App() {
     auditPercent,
     auditProgress,
     canRefresh,
+    checkPremiereStatus,
     error,
     fileName,
     folderPathInputRef,
@@ -25,8 +27,10 @@ function App() {
     handleRefreshData,
     isAuditActive,
     isAuditVisible,
+    isPremiereStatusLoading,
     isPersisted,
     isTableLoading,
+    premiereStatus,
     setGlobalFilter,
     toast,
     videoRows,
@@ -37,6 +41,12 @@ function App() {
   return (
     <main className={`app-shell ${hasTableSurface ? 'has-data' : ''}`}>
       <Toast ref={toast} position="top-center" />
+
+      <PremiereStatusBanner
+        isLoading={isPremiereStatusLoading}
+        onRetry={checkPremiereStatus}
+        status={premiereStatus}
+      />
 
       <UploadPanel
         auditPercent={auditPercent}
