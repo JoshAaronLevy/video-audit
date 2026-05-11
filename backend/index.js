@@ -6,6 +6,7 @@ const express = require("express");
 require("dotenv").config();
 
 const { auditVideos } = require("./utils/fileAudit");
+const { getPremiereStatus } = require("./utils/premiereBridge");
 
 const DEFAULT_SEARCH_ROOTS = [
   "/Volumes/SanDisk SSD/Videos",
@@ -353,6 +354,21 @@ app.use(express.json({ limit: "1mb" }));
 
 app.get("/api/health", (req, res) => {
   res.json({ ok: true });
+});
+
+app.get("/api/premiere/status", async (req, res) => {
+  try {
+    const status = await getPremiereStatus();
+    res.json(status);
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unable to check Premiere bridge status.",
+    });
+  }
 });
 
 app.post("/api/audits", async (req, res) => {
