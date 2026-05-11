@@ -70,8 +70,8 @@ export function UploadPanel({
 
       {folderPathTestSummary && (
         <p className="file-status" aria-live="polite">
-          Folder selection:{' '}
-          {folderPathTestSummary.videoFileCount.toLocaleString()} videos found
+          Auditing{' '}
+          {folderPathTestSummary.videoFileCount.toLocaleString()} videos
         </p>
       )}
 

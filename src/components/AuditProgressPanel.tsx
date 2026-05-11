@@ -1,5 +1,4 @@
 import { ProgressBar } from 'primereact/progressbar'
-import { Tag } from 'primereact/tag'
 import type { AuditProgress } from '../types/video'
 import { formatProgressNumber } from '../helpers/utils'
 
@@ -22,18 +21,6 @@ export function AuditProgressPanel({
             ? 'Audit complete'
             : auditProgress.message || 'Audit running'}
         </span>
-        {auditProgress.phase && (
-          <Tag
-            severity={
-              auditProgress.status === 'error'
-                ? 'danger'
-                : auditProgress.status === 'complete'
-                  ? 'success'
-                  : 'info'
-            }
-            value={auditProgress.phase}
-          />
-        )}
       </div>
       <ProgressBar
         mode={auditPercent === null && isAuditActive ? 'indeterminate' : 'determinate'}
@@ -51,10 +38,7 @@ export function AuditProgressPanel({
         <span>Flagged: {formatProgressNumber(auditProgress.flaggedCount)}</span>
         <span>Errors: {formatProgressNumber(auditProgress.errorCount)}</span>
         {auditProgress.currentFile && (
-          <span>Current: {auditProgress.currentFile}</span>
-        )}
-        {auditProgress.resolvedDirectory && (
-          <span>Folder: {auditProgress.resolvedDirectory}</span>
+          <span>File: {auditProgress.currentFile}</span>
         )}
       </div>
     </div>

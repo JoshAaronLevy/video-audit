@@ -37,7 +37,7 @@
 .eyebrow {
   margin: 0;
   color: var(--accent);
-  font-size: 0.82rem;
+  font-size: 2.5rem;
   font-weight: 700;
   letter-spacing: 0;
   text-transform: uppercase;
@@ -120,7 +120,7 @@
 .audit-progress-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   gap: 12px;
 }
 
@@ -128,7 +128,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px 16px;
-  color: var(--text);
+  color: #161F25;
   font-size: 0.92rem;
 }
 
@@ -198,7 +198,7 @@
 
 .table-header .table-visible-count {
   margin-top: 4px;
-  color: #000000;
+  color: #000000 !important;
   font-weight: 700;
 }
 
@@ -225,13 +225,13 @@
 }
 
 .cell-title {
-  color: var(--text-h);
+  color: #161F25;
   font-weight: 700;
 }
 
 .cell-muted,
 .cell-path {
-  color: var(--text);
+  color: #161F25;
   font-size: 0.9rem;
 }
 
