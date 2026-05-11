@@ -34,10 +34,10 @@ const MAX_EXPORT_REQUEST_VIDEOS = 100;
 
 const PREMIERE_EXPORT_PRESETS = Object.freeze([
   Object.freeze({
-    id: "h264-1080p-10mbps",
-    label: "H.264 1080p - 10 Mbps",
+    id: "video-audit-preset-1080p-5mbps",
+    label: "video-audit-preset-1080p-5mbps",
     resolution: "1920x1080",
-    presetFileName: "1920x1080 - 10.epr",
+    presetFileName: "video-audit-preset-1080p-5mbps.epr",
   }),
 ]);
 

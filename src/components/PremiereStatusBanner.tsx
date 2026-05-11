@@ -51,7 +51,6 @@ const getBannerText = (
   }
 
   if (status.status === 'ready') {
-    console.log('Bridge presets:', status.presets)
     const missingPreset = status.presets?.find(
       (preset) => preset.available === false,
     )

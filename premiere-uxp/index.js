@@ -29,10 +29,10 @@ const REQUEST_LIFECYCLE_STATE = Object.freeze({
 
 const PREMIERE_EXPORT_PRESETS = Object.freeze([
   Object.freeze({
-    id: "h264-1080p-10mbps",
-    label: "H.264 1080p - 10 Mbps",
+    id: "video-audit-preset-1080p-5mbps",
+    label: "video-audit-preset-1080p-5mbps",
     resolution: "1920x1080",
-    presetFileName: "1920x1080 - 10.epr",
+    presetFileName: "video-audit-preset-1080p-5mbps.epr",
   }),
 ]);
 
@@ -260,15 +260,6 @@ function getFileBaseName(fileName) {
   const cleanName = String(fileName || "video").split(/[\\/]/).pop() || "video";
   const extensionIndex = cleanName.lastIndexOf(".");
   return extensionIndex > 0 ? cleanName.slice(0, extensionIndex) : cleanName;
-}
-
-function toSafeFileNamePart(value) {
-  const safeValue = String(value || "")
-    .trim()
-    .replace(/[^A-Za-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-
-  return safeValue || "video";
 }
 
 function getSequenceName(fileName, request) {
@@ -846,34 +837,13 @@ function joinNativePath(directoryPath, fileName) {
   return `${normalizeNativePath(directoryPath)}/${fileName}`;
 }
 
-async function getOutputFileNames() {
-  const entries = await getFolderEntries(state.outputFolder);
-  return new Set(entries.filter((entry) => entry.isFile).map((entry) => entry.name));
-}
-
-async function buildOutputFilePath(video, request, reservedOutputNames) {
+function buildOutputFilePath(video) {
   const outputDirectory = getOutputDirectoryPath();
-  const existingOutputNames = await getOutputFileNames();
-  const safeBaseName = toSafeFileNamePart(getFileBaseName(video.fileName));
-  const shortRequestId = getRequestShortId(request);
-  const candidates = [
-    `${safeBaseName}-1080p.mp4`,
-    `${safeBaseName}-1080p-${shortRequestId}.mp4`,
-  ];
-
-  for (let index = 2; index < 1000; index += 1) {
-    candidates.push(`${safeBaseName}-1080p-${shortRequestId}-${index}.mp4`);
-  }
-
-  const outputFileName = candidates.find(
-    (candidate) => !existingOutputNames.has(candidate) && !reservedOutputNames.has(candidate)
-  );
+  const outputFileName = String(video.fileName || "").split(/[\\/]/).pop();
 
   if (!outputFileName) {
-    throw new Error(`Unable to find an available output file name for ${video.fileName}.`);
+    throw new Error(`Unable to resolve output file name for ${video.absolutePath}.`);
   }
-
-  reservedOutputNames.add(outputFileName);
 
   return {
     outputFileName,
@@ -1037,7 +1007,6 @@ async function queueVideoExport({
   exportBin,
   presetFilePath,
   request,
-  reservedOutputNames,
   video,
   videoIndex,
 }) {
@@ -1052,7 +1021,8 @@ async function queueVideoExport({
     request,
     video
   );
-  const output = await buildOutputFilePath(video, request, reservedOutputNames);
+
+  const output = buildOutputFilePath(video);
 
   setLastActivity(`Queueing ${output.outputFileName} in Adobe Media Encoder.`);
 
@@ -1081,7 +1051,6 @@ async function queueVideoExport({
 async function processExportRequest(request, presetFilePath, partialResult) {
   const project = await getActiveProject();
   const exportBin = await getOrCreateExportBin(project);
-  const reservedOutputNames = new Set();
   const queuedJobs = partialResult.queuedJobs;
 
   for (const [videoIndex, video] of request.videos.entries()) {
@@ -1090,7 +1059,6 @@ async function processExportRequest(request, presetFilePath, partialResult) {
       exportBin,
       presetFilePath,
       request,
-      reservedOutputNames,
       video,
       videoIndex,
     });
