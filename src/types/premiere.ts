@@ -31,3 +31,27 @@ export type PremiereStatusResponse = {
   outputDirectory?: string
   presets?: PremierePreset[]
 }
+
+export type PremiereExportVideo = {
+  id: string
+  fileName: string
+  absolutePath: string
+  directory: string
+  durationSeconds: number | null
+  width: number | null
+  height: number | null
+  displayAspectRatio: string
+  frameRate: number | null
+}
+
+export type PremiereExportRequestPayload = {
+  presetId: string
+  videos: PremiereExportVideo[]
+}
+
+export type PremiereExportRequestResponse = {
+  status: string
+  requestId?: string
+  message?: string
+  premiereStatus?: PremiereStatusResponse
+}

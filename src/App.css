@@ -157,6 +157,30 @@
   margin: 0;
 }
 
+.premiere-export-dialog {
+  width: min(460px, 92vw);
+}
+
+.premiere-export-dialog-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.premiere-export-preset {
+  width: 100%;
+}
+
+.premiere-export-error {
+  margin: 0;
+}
+
+.premiere-export-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .table-section {
   width: 90vw;
   max-width: 100%;
@@ -336,6 +360,16 @@
   }
 
   .premiere-status-panel .p-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .premiere-export-dialog-actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .premiere-export-dialog-actions .p-button {
     width: 100%;
     justify-content: center;
   }

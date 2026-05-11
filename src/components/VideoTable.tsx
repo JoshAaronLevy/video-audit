@@ -17,6 +17,7 @@ import {
 } from '../helpers/utils'
 
 type VideoTableProps = {
+  canExportToPremiere: boolean
   canRefresh: boolean
   fileName: string | null
   globalFilter: string
@@ -24,8 +25,11 @@ type VideoTableProps = {
   isLoading: boolean
   isPersisted: boolean
   onClearData: () => void
+  onExportToPremiereClick: () => void
   onGlobalFilterChange: (value: string) => void
   onRefreshData: () => void
+  onSelectedVideosChange: (videos: VideoRow[]) => void
+  selectedVideos: VideoRow[]
   videoRows: VideoRow[]
 }
 
@@ -485,6 +489,7 @@ const skeletonTemplate = () => (
 )
 
 export function VideoTable({
+  canExportToPremiere,
   canRefresh,
   fileName,
   globalFilter,
@@ -492,11 +497,13 @@ export function VideoTable({
   isLoading,
   // isPersisted,
   onClearData,
+  onExportToPremiereClick,
   onGlobalFilterChange,
   onRefreshData,
+  onSelectedVideosChange,
+  selectedVideos,
   videoRows,
 }: VideoTableProps) {
-  const [selectedVideos, setSelectedVideos] = useState<VideoRow[]>([])
   const [directoryFilterValue, setDirectoryFilterValue] = useState<
     DirectoryFilterValue[]
   >([])
@@ -554,11 +561,10 @@ export function VideoTable({
     () => buildAspectRatioFilterOptions(videoRows, activeFilters),
     [activeFilters, videoRows],
   )
-
-  const handleSelectionChange = (nextSelectedVideos: VideoRow[]) => {
-    setSelectedVideos(nextSelectedVideos)
-    console.log('selectedVideos', nextSelectedVideos)
-  }
+  const exportButtonLabel =
+    selectedVideos.length > 0
+      ? `Export to Premiere (${selectedVideos.length.toLocaleString()})`
+      : 'Export to Premiere'
 
   const tableHeader = (
     <div className="table-header">
@@ -578,6 +584,12 @@ export function VideoTable({
         )}
       </div>
       <div className="table-actions">
+        <Button
+          type="button"
+          label={exportButtonLabel}
+          disabled={!canExportToPremiere}
+          onClick={onExportToPremiereClick}
+        />
         <InputText
           value={globalFilter}
           onChange={(event) => onGlobalFilterChange(event.target.value)}
@@ -614,7 +626,7 @@ export function VideoTable({
         selectionMode="multiple"
         selection={selectedVideos}
         onSelectionChange={(event) =>
-          handleSelectionChange(event.value as VideoRow[])
+          onSelectedVideosChange(event.value as VideoRow[])
         }
         metaKeySelection={false}
         paginator={!isLoading}

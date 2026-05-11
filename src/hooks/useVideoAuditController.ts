@@ -23,9 +23,24 @@ import type {
   VideoRow,
 } from '../types/video'
 import type {
+  PremiereExportRequestPayload,
+  PremiereExportRequestResponse,
+  PremiereExportVideo,
   PremierePreset,
   PremiereStatusResponse,
 } from '../types/premiere'
+
+const toPremiereExportVideo = (row: VideoRow): PremiereExportVideo => ({
+  id: row.path,
+  fileName: row.fileName,
+  absolutePath: row.path,
+  directory: row.directory,
+  durationSeconds: row.durationSeconds,
+  width: row.width,
+  height: row.height,
+  displayAspectRatio: row.displayAspectRatio,
+  frameRate: row.frameRate,
+})
 
 export function useVideoAuditController() {
   const [initialData] = useState<StoredVideoData | null>(() =>
@@ -55,6 +70,17 @@ export function useVideoAuditController() {
     useState<PremiereStatusResponse | null>(null)
   const [isPremiereStatusLoading, setIsPremiereStatusLoading] = useState(false)
   const [premierePresets, setPremierePresets] = useState<PremierePreset[]>([])
+  const [selectedVideos, setSelectedVideos] = useState<VideoRow[]>([])
+  const [isPremiereExportDialogVisible, setIsPremiereExportDialogVisible] =
+    useState(false)
+  const [selectedPremierePresetId, setSelectedPremierePresetId] = useState<
+    string | null
+  >(null)
+  const [premiereExportError, setPremiereExportError] = useState<string | null>(
+    null,
+  )
+  const [isPremiereExportSubmitting, setIsPremiereExportSubmitting] =
+    useState(false)
 
   const closeAuditEventSource = () => {
     auditEventSourceRef.current?.close()
@@ -74,7 +100,18 @@ export function useVideoAuditController() {
       const payload = (await response.json()) as PremiereStatusResponse
 
       setPremiereStatus(payload)
-      setPremierePresets(Array.isArray(payload.presets) ? payload.presets : [])
+      const nextPresets = Array.isArray(payload.presets) ? payload.presets : []
+      setPremierePresets(nextPresets)
+      setSelectedPremierePresetId((currentPresetId) => {
+        if (
+          currentPresetId &&
+          nextPresets.some((preset) => preset.id === currentPresetId)
+        ) {
+          return currentPresetId
+        }
+
+        return nextPresets[0]?.id ?? null
+      })
     } catch (caughtError) {
       const message =
         caughtError instanceof Error
@@ -87,6 +124,7 @@ export function useVideoAuditController() {
         bridge: { connected: false },
       })
       setPremierePresets([])
+      setSelectedPremierePresetId(null)
       toast.current?.show({
         severity: 'error',
         summary: 'Premiere status failed',
@@ -178,6 +216,7 @@ export function useVideoAuditController() {
     })
 
     setVideoRows(trimmedRows)
+    setSelectedVideos([])
     setFileName(nextFileName)
     setStoredPayload(requestPayloadJson)
     setIsPersisted(persisted)
@@ -215,6 +254,7 @@ export function useVideoAuditController() {
       setGlobalFilter('')
 
       if (videoRows !== null) {
+        setSelectedVideos([])
         setVideoRows([])
         setIsTableLoading(true)
       }
@@ -446,6 +486,7 @@ export function useVideoAuditController() {
     closeAuditEventSource()
     clearStoredVideoData()
     setVideoRows(null)
+    setSelectedVideos([])
     setFileName(null)
     setStoredPayload(null)
     setGlobalFilter('')
@@ -456,10 +497,116 @@ export function useVideoAuditController() {
     setAuditProgress(initialAuditProgress)
   }
 
+  const handleOpenPremiereExportDialog = () => {
+    if (
+      selectedVideos.length === 0 ||
+      premiereStatus?.status !== 'ready' ||
+      isAuditActive ||
+      isTableLoading
+    ) {
+      return
+    }
+
+    setPremiereExportError(null)
+    setSelectedPremierePresetId((currentPresetId) => {
+      if (
+        currentPresetId &&
+        premierePresets.some((preset) => preset.id === currentPresetId)
+      ) {
+        return currentPresetId
+      }
+
+      return premierePresets[0]?.id ?? null
+    })
+    setIsPremiereExportDialogVisible(true)
+  }
+
+  const handleClosePremiereExportDialog = () => {
+    if (isPremiereExportSubmitting) {
+      return
+    }
+
+    setIsPremiereExportDialogVisible(false)
+    setPremiereExportError(null)
+  }
+
+  const handleSubmitPremiereExport = async () => {
+    if (!selectedPremierePresetId) {
+      setPremiereExportError('Choose an export preset.')
+      return
+    }
+
+    if (selectedVideos.length === 0) {
+      setPremiereExportError('Select at least one video to export.')
+      return
+    }
+
+    const requestPayload: PremiereExportRequestPayload = {
+      presetId: selectedPremierePresetId,
+      videos: selectedVideos.map(toPremiereExportVideo),
+    }
+
+    setIsPremiereExportSubmitting(true)
+    setPremiereExportError(null)
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/premiere/export-requests`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestPayload),
+      })
+      const payload = (await response.json()) as PremiereExportRequestResponse
+
+      if (payload.status === 'bridge_not_ready' && payload.premiereStatus) {
+        setPremiereStatus(payload.premiereStatus)
+        setPremierePresets(
+          Array.isArray(payload.premiereStatus.presets)
+            ? payload.premiereStatus.presets
+            : [],
+        )
+      }
+
+      if (!response.ok || payload.status !== 'queued' || !payload.requestId) {
+        throw new Error(
+          payload.message || 'Unable to queue export request for Premiere.',
+        )
+      }
+
+      setIsPremiereExportDialogVisible(false)
+      setPremiereExportError(null)
+      toast.current?.show({
+        severity: 'success',
+        summary: 'Export queued',
+        detail: `Premiere request ${payload.requestId} was written to the bridge.`,
+        life: 5200,
+      })
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error
+          ? caughtError.message
+          : 'Unable to queue export request for Premiere.'
+
+      setPremiereExportError(message)
+      toast.current?.show({
+        severity: 'error',
+        summary: 'Export failed',
+        detail: message,
+        life: 5200,
+      })
+    } finally {
+      setIsPremiereExportSubmitting(false)
+    }
+  }
+
   const auditPercent = getAuditPercent(auditProgress)
   const isAuditVisible = auditProgress.status !== 'idle'
   const isAuditActive =
     auditProgress.status === 'starting' || auditProgress.status === 'running'
+  const canExportToPremiere =
+    selectedVideos.length > 0 &&
+    premiereStatus?.status === 'ready' &&
+    !isAuditActive &&
+    !isTableLoading
 
   return {
     auditPercent,
@@ -471,17 +618,28 @@ export function useVideoAuditController() {
     globalFilter,
     handleClearData,
     checkPremiereStatus,
+    handleClosePremiereExportDialog,
     handleFolderPathSelect,
     handleOpenFolderPathTest,
+    handleOpenPremiereExportDialog,
     handleRefreshData,
+    handleSubmitPremiereExport,
     isAuditActive,
     isAuditVisible,
+    isPremiereExportDialogVisible,
+    isPremiereExportSubmitting,
     isPersisted,
     isPremiereStatusLoading,
     isTableLoading,
+    premiereExportError,
     premierePresets,
     premiereStatus,
+    selectedPremierePresetId,
+    selectedVideos,
     canRefresh: Boolean(storedPayload),
+    canExportToPremiere,
+    setSelectedPremierePresetId,
+    setSelectedVideos,
     setGlobalFilter,
     toast,
     videoRows,

@@ -4,6 +4,7 @@ import { Button } from 'primereact/button'
 import 'primereact/resources/themes/lara-light-cyan/theme.css'
 import 'primereact/resources/primereact.min.css'
 import 'primeflex/primeflex.css'
+import { PremiereExportDialog } from './components/PremiereExportDialog'
 import { PremiereStatusBanner } from './components/PremiereStatusBanner'
 import { UploadPanel } from './components/UploadPanel'
 import { VideoTable } from './components/VideoTable'
@@ -14,6 +15,7 @@ function App() {
   const {
     auditPercent,
     auditProgress,
+    canExportToPremiere,
     canRefresh,
     checkPremiereStatus,
     error,
@@ -22,15 +24,26 @@ function App() {
     folderPathTestSummary,
     globalFilter,
     handleClearData,
+    handleClosePremiereExportDialog,
     handleFolderPathSelect,
     handleOpenFolderPathTest,
+    handleOpenPremiereExportDialog,
     handleRefreshData,
+    handleSubmitPremiereExport,
     isAuditActive,
     isAuditVisible,
+    isPremiereExportDialogVisible,
+    isPremiereExportSubmitting,
     isPremiereStatusLoading,
     isPersisted,
     isTableLoading,
+    premiereExportError,
+    premierePresets,
     premiereStatus,
+    selectedPremierePresetId,
+    selectedVideos,
+    setSelectedPremierePresetId,
+    setSelectedVideos,
     setGlobalFilter,
     toast,
     videoRows,
@@ -92,6 +105,7 @@ function App() {
       ) : (
         hasTableSurface && (
           <VideoTable
+            canExportToPremiere={canExportToPremiere}
             canRefresh={canRefresh}
             fileName={fileName}
             globalFilter={globalFilter}
@@ -99,12 +113,27 @@ function App() {
             isLoading={isTableLoading}
             isPersisted={isPersisted}
             onClearData={handleClearData}
+            onExportToPremiereClick={handleOpenPremiereExportDialog}
             onGlobalFilterChange={setGlobalFilter}
             onRefreshData={handleRefreshData}
+            onSelectedVideosChange={setSelectedVideos}
+            selectedVideos={selectedVideos}
             videoRows={videoRows ?? []}
           />
         )
       )}
+
+      <PremiereExportDialog
+        error={premiereExportError}
+        isSubmitting={isPremiereExportSubmitting}
+        onHide={handleClosePremiereExportDialog}
+        onPresetChange={setSelectedPremierePresetId}
+        onSubmit={handleSubmitPremiereExport}
+        presets={premierePresets}
+        selectedCount={selectedVideos.length}
+        selectedPresetId={selectedPremierePresetId}
+        visible={isPremiereExportDialogVisible}
+      />
     </main>
   )
 }
