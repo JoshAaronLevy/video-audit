@@ -6,7 +6,10 @@ const express = require("express");
 require("dotenv").config();
 
 const { auditVideos } = require("./utils/fileAudit");
-const { getPremiereStatus } = require("./utils/premiereBridge");
+const {
+  createPremiereExportRequest,
+  getPremiereStatus,
+} = require("./utils/premiereBridge");
 
 const DEFAULT_SEARCH_ROOTS = [
   "/Volumes/SanDisk SSD/Videos",
@@ -367,6 +370,21 @@ app.get("/api/premiere/status", async (req, res) => {
         error instanceof Error
           ? error.message
           : "Unable to check Premiere bridge status.",
+    });
+  }
+});
+
+app.post("/api/premiere/export-requests", async (req, res) => {
+  try {
+    const result = await createPremiereExportRequest(req.body);
+    res.status(result.statusCode).json(result.payload);
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unable to queue Premiere export request.",
     });
   }
 });

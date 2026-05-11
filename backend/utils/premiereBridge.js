@@ -1,3 +1,4 @@
+const crypto = require("node:crypto");
 const { execFile } = require("node:child_process");
 const fs = require("node:fs/promises");
 const os = require("node:os");
@@ -11,8 +12,13 @@ const {
   DEFAULT_BRIDGE_DIR,
   DEFAULT_EXPORT_OUTPUT_DIR,
   DEFAULT_HEARTBEAT_MAX_AGE_MS,
+  getPresetById,
+  isKnownPresetId,
+  MAX_EXPORT_REQUEST_VIDEOS,
   PLUGIN_ID,
   PREMIERE_EXPORT_PRESETS,
+  REQUEST_LIFECYCLE_STATE,
+  REQUEST_TYPE_EXPORT_SELECTED_VIDEOS,
 } = require("../../shared/premiereBridge.cjs");
 
 const execFileAsync = promisify(execFile);
@@ -208,6 +214,268 @@ function serializeDisconnectedBridge(reason, statusFileResult, freshness) {
   return bridge;
 }
 
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isNumberOrNull(value) {
+  return value === null || (typeof value === "number" && Number.isFinite(value));
+}
+
+function validationError(message, details) {
+  return {
+    ok: false,
+    statusCode: 400,
+    payload: {
+      status: "invalid_request",
+      message,
+      ...(details ? { details } : {}),
+    },
+  };
+}
+
+function conflictError(status, message, details) {
+  return {
+    ok: false,
+    statusCode: 409,
+    payload: {
+      status,
+      message,
+      ...(details ? { details } : {}),
+    },
+  };
+}
+
+function validateExportRequestBody(body) {
+  if (!isPlainObject(body)) {
+    return validationError("Request body is required.");
+  }
+
+  if (!isKnownPresetId(body.presetId)) {
+    return validationError("presetId must be a known Premiere export preset.");
+  }
+
+  if (!Array.isArray(body.videos)) {
+    return validationError("videos must be an array.");
+  }
+
+  if (body.videos.length === 0) {
+    return validationError("At least one selected video is required.");
+  }
+
+  if (body.videos.length > MAX_EXPORT_REQUEST_VIDEOS) {
+    return validationError(
+      `No more than ${MAX_EXPORT_REQUEST_VIDEOS} videos can be queued at once.`
+    );
+  }
+
+  for (const [index, video] of body.videos.entries()) {
+    if (!isPlainObject(video)) {
+      return validationError(`videos[${index}] must be an object.`);
+    }
+
+    if (typeof video.id !== "string" || video.id.trim() === "") {
+      return validationError(`videos[${index}].id is required.`);
+    }
+
+    if (typeof video.fileName !== "string" || video.fileName.trim() === "") {
+      return validationError(`videos[${index}].fileName is required.`);
+    }
+
+    if (
+      typeof video.absolutePath !== "string" ||
+      video.absolutePath.trim() === ""
+    ) {
+      return validationError(`videos[${index}].absolutePath is required.`);
+    }
+
+    if (!path.isAbsolute(video.absolutePath)) {
+      return validationError(`videos[${index}].absolutePath must be absolute.`);
+    }
+
+    if (typeof video.directory !== "string") {
+      return validationError(`videos[${index}].directory is required.`);
+    }
+
+    for (const field of ["durationSeconds", "width", "height", "frameRate"]) {
+      if (!isNumberOrNull(video[field])) {
+        return validationError(`videos[${index}].${field} must be a number or null.`);
+      }
+    }
+
+    if (
+      typeof video.displayAspectRatio !== "string" &&
+      video.displayAspectRatio !== null
+    ) {
+      return validationError(
+        `videos[${index}].displayAspectRatio must be a string or null.`
+      );
+    }
+  }
+
+  return { ok: true };
+}
+
+function toExportRequestVideo(video) {
+  return {
+    id: video.id.trim(),
+    fileName: video.fileName.trim(),
+    absolutePath: video.absolutePath,
+    directory: video.directory,
+    durationSeconds: video.durationSeconds,
+    width: video.width,
+    height: video.height,
+    displayAspectRatio: video.displayAspectRatio,
+    frameRate: video.frameRate,
+  };
+}
+
+async function validatePresetFile(paths, preset) {
+  const presetPath = path.join(paths.presetsDir, preset.presetFileName);
+
+  try {
+    const stat = await fs.stat(presetPath);
+
+    if (!stat.isFile()) {
+      return conflictError(
+        "preset_missing",
+        `Premiere export preset file is not a file: ${preset.presetFileName}`,
+        { presetPath }
+      );
+    }
+  } catch (error) {
+    if (error && error.code === "ENOENT") {
+      return conflictError(
+        "preset_missing",
+        `Premiere export preset file is missing: ${preset.presetFileName}`,
+        { presetPath }
+      );
+    }
+
+    return conflictError(
+      "preset_unavailable",
+      `Unable to read Premiere export preset file: ${preset.presetFileName}`,
+      {
+        presetPath,
+        error: error instanceof Error ? error.message : String(error),
+      }
+    );
+  }
+
+  return { ok: true, presetPath };
+}
+
+async function validateSelectedVideoFiles(videos) {
+  const invalidVideos = [];
+
+  await Promise.all(
+    videos.map(async (video, index) => {
+      try {
+        const stat = await fs.stat(video.absolutePath);
+
+        if (!stat.isFile()) {
+          invalidVideos.push({
+            index,
+            fileName: video.fileName,
+            absolutePath: video.absolutePath,
+            reason: "not_file",
+          });
+        }
+      } catch (error) {
+        invalidVideos.push({
+          index,
+          fileName: video.fileName,
+          absolutePath: video.absolutePath,
+          reason: error && error.code === "ENOENT" ? "missing" : "unavailable",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    })
+  );
+
+  if (invalidVideos.length > 0) {
+    invalidVideos.sort((first, second) => first.index - second.index);
+    return validationError("One or more selected video files could not be read.", {
+      videos: invalidVideos,
+    });
+  }
+
+  return { ok: true };
+}
+
+function buildPremiereExportRequest({ preset, videos }) {
+  return {
+    id: crypto.randomUUID(),
+    type: REQUEST_TYPE_EXPORT_SELECTED_VIDEOS,
+    status: REQUEST_LIFECYCLE_STATE.queued,
+    createdAt: new Date().toISOString(),
+    presetId: preset.id,
+    presetFileName: preset.presetFileName,
+    outputDirectory: DEFAULT_EXPORT_OUTPUT_DIR,
+    videos,
+  };
+}
+
+async function writeExportRequest(paths, request) {
+  const requestPath = path.join(paths.requestsDir, `${request.id}.json`);
+  const tempRequestPath = `${requestPath}.tmp`;
+
+  await fs.writeFile(tempRequestPath, `${JSON.stringify(request, null, 2)}\n`);
+  await fs.rename(tempRequestPath, requestPath);
+
+  return requestPath;
+}
+
+async function createPremiereExportRequest(body) {
+  const bodyValidation = validateExportRequestBody(body);
+
+  if (!bodyValidation.ok) {
+    return bodyValidation;
+  }
+
+  const paths = await ensurePremiereBridgeDirectories();
+  const preset = getPresetById(body.presetId);
+  const presetValidation = await validatePresetFile(paths, preset);
+
+  if (!presetValidation.ok) {
+    return presetValidation;
+  }
+
+  const videos = body.videos.map(toExportRequestVideo);
+  const videoValidation = await validateSelectedVideoFiles(videos);
+
+  if (!videoValidation.ok) {
+    return videoValidation;
+  }
+
+  const premiereStatus = await getPremiereStatus();
+
+  if (premiereStatus.status !== "ready") {
+    return {
+      ok: false,
+      statusCode: 409,
+      payload: {
+        status: "bridge_not_ready",
+        message: premiereStatus.message,
+        premiereStatus,
+      },
+    };
+  }
+
+  const request = buildPremiereExportRequest({ preset, videos });
+  await writeExportRequest(paths, request);
+
+  return {
+    ok: true,
+    statusCode: 202,
+    payload: {
+      status: "queued",
+      requestId: request.id,
+      message: "Export request queued for Premiere.",
+    },
+  };
+}
+
 async function getPremiereStatus() {
   const paths = await ensurePremiereBridgeDirectories();
   const [premiere, statusFileResult] = await Promise.all([
@@ -289,6 +557,7 @@ async function getPremiereStatus() {
 }
 
 module.exports = {
+  createPremiereExportRequest,
   ensurePremiereBridgeDirectories,
   getBridgeDir,
   getBridgePaths,
