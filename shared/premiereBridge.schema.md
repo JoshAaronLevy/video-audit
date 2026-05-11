@@ -34,10 +34,10 @@ Preset metadata is stable and shared. The actual Adobe `.epr` file should live i
 ```json
 [
   {
-    "id": "h264-1080p-12mbps",
-    "label": "H.264 1080p - 12 Mbps",
+    "id": "h264-1080p-10mbps",
+    "label": "1920x1080 - 10",
     "resolution": "1920x1080",
-    "presetFileName": "h264-1080p-12mbps.epr",
+    "presetFileName": "/Users/joshlevy/VideoAudit/premiere-bridge/presets/1920x1080 - 10.epr",
     "available": true
   }
 ]

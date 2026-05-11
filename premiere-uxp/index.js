@@ -30,7 +30,7 @@ const REQUEST_LIFECYCLE_STATE = Object.freeze({
 const PREMIERE_EXPORT_PRESETS = Object.freeze([
   Object.freeze({
     id: "h264-1080p-10mbps",
-    label: "H.264 1080p - 10 Mbps",
+    label: "1920x1080 - 10",
     resolution: "1920x1080",
     presetFileName: "/Users/joshlevy/VideoAudit/premiere-bridge/presets/1920x1080 - 10.epr",
   }),
