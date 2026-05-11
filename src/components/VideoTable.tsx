@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Button } from 'primereact/button'
 import { Column } from 'primereact/column'
 import { DataTable } from 'primereact/datatable'
@@ -554,12 +554,6 @@ export function VideoTable({
     () => buildAspectRatioFilterOptions(videoRows, activeFilters),
     [activeFilters, videoRows],
   )
-
-  useEffect(() => {
-    if (videoRows.length > 0) {
-      console.log('VideoTable first row', videoRows[0])
-    }
-  }, [videoRows])
 
   const handleSelectionChange = (nextSelectedVideos: VideoRow[]) => {
     setSelectedVideos(nextSelectedVideos)
