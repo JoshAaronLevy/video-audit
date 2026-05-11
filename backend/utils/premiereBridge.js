@@ -23,6 +23,16 @@ const {
 
 const execFileAsync = promisify(execFile);
 
+function getPremiereProcessNames() {
+  const currentYear = new Date().getFullYear();
+  const yearCandidates = [currentYear - 1, currentYear, currentYear + 1];
+
+  return [
+    "Adobe Premiere Pro",
+    ...yearCandidates.map((year) => `Adobe Premiere Pro ${year}`),
+  ];
+}
+
 function expandHomePath(value) {
   if (value === "~") {
     return os.homedir();
@@ -77,23 +87,59 @@ async function ensurePremiereBridgeDirectories() {
 }
 
 async function isPremiereRunning() {
-  try {
-    await execFileAsync("pgrep", ["-x", "Adobe Premiere Pro"]);
-    return { running: true };
-  } catch (error) {
-    if (error && error.code === 1) {
-      return { running: false };
+  const processNames = getPremiereProcessNames();
+
+  console.log("[Premiere Bridge] Checking Premiere processes.", {
+    processNames,
+  });
+
+  let lastUnexpectedError = null;
+
+  for (const processName of processNames) {
+    try {
+      const { stdout } = await execFileAsync("pgrep", ["-x", processName]);
+      const pids = stdout.trim().split(/\s+/).filter(Boolean);
+
+      if (pids.length > 0) {
+        console.log("[Premiere Bridge] Premiere process found.", {
+          processName,
+          pids,
+        });
+        return { running: true, processName, pids };
+      }
+    } catch (error) {
+      if (error && error.code === 1) {
+        continue;
+      }
+
+      lastUnexpectedError = error;
+      break;
     }
+  }
+
+  if (lastUnexpectedError) {
+    console.error("[Premiere Bridge] Premiere process check failed.", {
+      code: lastUnexpectedError && lastUnexpectedError.code,
+      message:
+        lastUnexpectedError instanceof Error
+          ? lastUnexpectedError.message
+          : String(lastUnexpectedError),
+    });
 
     return {
       running: null,
       reason: "process_check_failed",
       message:
-        error instanceof Error
-          ? error.message
+        lastUnexpectedError instanceof Error
+          ? lastUnexpectedError.message
           : "Unable to check whether Premiere Pro is running.",
     };
   }
+
+  console.log("[Premiere Bridge] Premiere process not found.", {
+    processNames,
+  });
+  return { running: false, checkedProcessNames: processNames };
 }
 
 async function readStatusFile(statusPath) {

@@ -97,13 +97,25 @@ export function useVideoAuditController() {
     setIsPremiereStatusLoading(true)
 
     try {
-      const response = await fetch(`${apiBaseUrl}/api/premiere/status`)
+      const statusUrl = `${apiBaseUrl}/api/premiere/status`
+
+      console.info('[Premiere Bridge] Checking status', { statusUrl })
+
+      const response = await fetch(statusUrl)
+
+      console.info('[Premiere Bridge] Status response received', {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+      })
 
       if (!response.ok) {
         throw new Error('Unable to check Premiere bridge status.')
       }
 
       const payload = (await response.json()) as PremiereStatusResponse
+
+      console.info('[Premiere Bridge] Status payload', payload)
 
       setPremiereStatus(payload)
       const nextPresets = Array.isArray(payload.presets) ? payload.presets : []
@@ -126,6 +138,8 @@ export function useVideoAuditController() {
         caughtError instanceof Error
           ? caughtError.message
           : 'Unable to check Premiere bridge status.'
+
+      console.error('[Premiere Bridge] Status check failed', caughtError)
 
       setPremiereStatus({
         status: 'error',
