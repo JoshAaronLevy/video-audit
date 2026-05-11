@@ -32,7 +32,7 @@ const PREMIERE_EXPORT_PRESETS = Object.freeze([
     id: "h264-1080p-10mbps",
     label: "1920x1080 - 10",
     resolution: "1920x1080",
-    presetFileName: "/Users/joshlevy/VideoAudit/premiere-bridge/presets/1920x1080 - 10.epr",
+    presetFileName: "~/VideoAudit/premiere-bridge/presets/1920x1080 - 10.epr",
   }),
 ]);
 

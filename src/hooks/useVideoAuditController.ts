@@ -99,15 +99,7 @@ export function useVideoAuditController() {
     try {
       const statusUrl = `${apiBaseUrl}/api/premiere/status`
 
-      console.info('[Premiere Bridge] Checking status', { statusUrl })
-
       const response = await fetch(statusUrl)
-
-      console.info('[Premiere Bridge] Status response received', {
-        ok: response.ok,
-        status: response.status,
-        statusText: response.statusText,
-      })
 
       if (!response.ok) {
         throw new Error('Unable to check Premiere bridge status.')
