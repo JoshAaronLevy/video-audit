@@ -35,9 +35,9 @@ const MAX_EXPORT_REQUEST_VIDEOS = 100;
 const PREMIERE_EXPORT_PRESETS = Object.freeze([
   Object.freeze({
     id: "h264-1080p-10mbps",
-    label: "1920x1080 - 10",
+    label: "H.264 1080p - 10 Mbps",
     resolution: "1920x1080",
-    presetFileName: "~/VideoAudit/premiere-bridge/presets/1920x1080 - 10.epr",
+    presetFileName: "1920x1080 - 10.epr",
   }),
 ]);
 
