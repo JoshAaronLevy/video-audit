@@ -42,6 +42,12 @@ const toPremiereExportVideo = (row: VideoRow): PremiereExportVideo => ({
   frameRate: row.frameRate,
 })
 
+const isPremierePresetAvailable = (preset: PremierePreset) =>
+  preset.available !== false
+
+const getFirstAvailablePremierePresetId = (presets: PremierePreset[]) =>
+  presets.find(isPremierePresetAvailable)?.id ?? null
+
 export function useVideoAuditController() {
   const [initialData] = useState<StoredVideoData | null>(() =>
     loadStoredVideoData(),
@@ -105,12 +111,15 @@ export function useVideoAuditController() {
       setSelectedPremierePresetId((currentPresetId) => {
         if (
           currentPresetId &&
-          nextPresets.some((preset) => preset.id === currentPresetId)
+          nextPresets.some(
+            (preset) =>
+              preset.id === currentPresetId && isPremierePresetAvailable(preset),
+          )
         ) {
           return currentPresetId
         }
 
-        return nextPresets[0]?.id ?? null
+        return getFirstAvailablePremierePresetId(nextPresets)
       })
     } catch (caughtError) {
       const message =
@@ -511,12 +520,15 @@ export function useVideoAuditController() {
     setSelectedPremierePresetId((currentPresetId) => {
       if (
         currentPresetId &&
-        premierePresets.some((preset) => preset.id === currentPresetId)
+        premierePresets.some(
+          (preset) =>
+            preset.id === currentPresetId && isPremierePresetAvailable(preset),
+        )
       ) {
         return currentPresetId
       }
 
-      return premierePresets[0]?.id ?? null
+      return getFirstAvailablePremierePresetId(premierePresets)
     })
     setIsPremiereExportDialogVisible(true)
   }
@@ -533,6 +545,18 @@ export function useVideoAuditController() {
   const handleSubmitPremiereExport = async () => {
     if (!selectedPremierePresetId) {
       setPremiereExportError('Choose an export preset.')
+      return
+    }
+
+    const selectedPreset = premierePresets.find(
+      (preset) => preset.id === selectedPremierePresetId,
+    )
+
+    if (!selectedPreset || !isPremierePresetAvailable(selectedPreset)) {
+      setPremiereExportError(
+        selectedPreset?.unavailableMessage ||
+          'The selected export preset file is missing.',
+      )
       return
     }
 
@@ -605,6 +629,7 @@ export function useVideoAuditController() {
   const canExportToPremiere =
     selectedVideos.length > 0 &&
     premiereStatus?.status === 'ready' &&
+    premierePresets.some(isPremierePresetAvailable) &&
     !isAuditActive &&
     !isTableLoading
 

@@ -8,6 +8,10 @@ export type PremierePreset = {
   id: string
   label: string
   resolution: string
+  presetFileName?: string
+  available?: boolean
+  unavailableReason?: string
+  unavailableMessage?: string
 }
 
 export type PremiereStatusResponse = {

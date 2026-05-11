@@ -35,6 +35,14 @@ The backend writes requests to:
 ~/VideoAudit/premiere-bridge/requests/
 ```
 
+Place the real Adobe export preset at:
+
+```txt
+~/VideoAudit/premiere-bridge/presets/h264-1080p-12mbps.epr
+```
+
+The repo does not generate this `.epr` file in JavaScript; export it from Adobe's preset workflow so Premiere and Adobe Media Encoder can read the native preset.
+
 The plugin validates bridge access, writes heartbeat status, polls `requests/`, imports each selected video into the active Premiere project, creates one 1920x1080 `Video Audit` sequence per video, and queues each sequence in Adobe Media Encoder with the selected `.epr` preset. It moves successful requests to `completed/` with queued job details and failed requests to `failed/` with error information.
 
 The plugin only queues jobs in Adobe Media Encoder. It does not start the Media Encoder queue automatically.

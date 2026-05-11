@@ -156,12 +156,68 @@ function getStatusFreshness(status, heartbeatMaxAgeMs) {
   };
 }
 
-function serializePresets() {
-  return PREMIERE_EXPORT_PRESETS.map(({ id, label, resolution }) => ({
-    id,
-    label,
-    resolution,
-  }));
+async function getPresetFileState(paths, preset) {
+  const presetPath = path.join(paths.presetsDir, preset.presetFileName);
+
+  try {
+    const stat = await fs.stat(presetPath);
+
+    if (!stat.isFile()) {
+      return {
+        available: false,
+        reason: "not_file",
+        message: `Premiere export preset file is not a file: ${preset.presetFileName}`,
+        presetPath,
+      };
+    }
+
+    return {
+      available: true,
+      presetPath,
+    };
+  } catch (error) {
+    if (error && error.code === "ENOENT") {
+      return {
+        available: false,
+        reason: "missing",
+        message: `Premiere export preset file is missing: ${preset.presetFileName}`,
+        presetPath,
+      };
+    }
+
+    return {
+      available: false,
+      reason: "unavailable",
+      message: `Unable to read Premiere export preset file: ${preset.presetFileName}`,
+      presetPath,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function serializePresets(paths) {
+  return Promise.all(
+    PREMIERE_EXPORT_PRESETS.map(async ({ id, label, resolution, presetFileName }) => {
+      const presetFileState = await getPresetFileState(paths, {
+        id,
+        presetFileName,
+      });
+
+      return {
+        id,
+        label,
+        resolution,
+        presetFileName,
+        available: presetFileState.available,
+        ...(presetFileState.available
+          ? {}
+          : {
+              unavailableReason: presetFileState.reason,
+              unavailableMessage: presetFileState.message,
+            }),
+      };
+    })
+  );
 }
 
 function serializeReadyBridge(status, ageMs) {
@@ -331,38 +387,20 @@ function toExportRequestVideo(video) {
 }
 
 async function validatePresetFile(paths, preset) {
-  const presetPath = path.join(paths.presetsDir, preset.presetFileName);
+  const presetFileState = await getPresetFileState(paths, preset);
 
-  try {
-    const stat = await fs.stat(presetPath);
-
-    if (!stat.isFile()) {
-      return conflictError(
-        "preset_missing",
-        `Premiere export preset file is not a file: ${preset.presetFileName}`,
-        { presetPath }
-      );
-    }
-  } catch (error) {
-    if (error && error.code === "ENOENT") {
-      return conflictError(
-        "preset_missing",
-        `Premiere export preset file is missing: ${preset.presetFileName}`,
-        { presetPath }
-      );
-    }
-
-    return conflictError(
-      "preset_unavailable",
-      `Unable to read Premiere export preset file: ${preset.presetFileName}`,
-      {
-        presetPath,
-        error: error instanceof Error ? error.message : String(error),
-      }
-    );
+  if (presetFileState.available) {
+    return { ok: true, presetPath: presetFileState.presetPath };
   }
 
-  return { ok: true, presetPath };
+  return conflictError(
+    presetFileState.reason === "unavailable" ? "preset_unavailable" : "preset_missing",
+    presetFileState.message,
+    {
+      presetPath: presetFileState.presetPath,
+      ...(presetFileState.error ? { error: presetFileState.error } : {}),
+    }
+  );
 }
 
 async function validateSelectedVideoFiles(videos) {
@@ -478,15 +516,16 @@ async function createPremiereExportRequest(body) {
 
 async function getPremiereStatus() {
   const paths = await ensurePremiereBridgeDirectories();
-  const [premiere, statusFileResult] = await Promise.all([
+  const [premiere, statusFileResult, presets] = await Promise.all([
     isPremiereRunning(),
     readStatusFile(paths.statusPath),
+    serializePresets(paths),
   ]);
   const baseResponse = {
     premiere,
     bridgeDir: paths.bridgeDir,
     outputDirectory: paths.outputDirectory,
-    presets: serializePresets(),
+    presets,
   };
 
   if (premiere.running === false) {

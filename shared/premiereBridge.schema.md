@@ -37,12 +37,13 @@ Preset metadata is stable and shared. The actual Adobe `.epr` file should live i
     "id": "h264-1080p-12mbps",
     "label": "H.264 1080p - 12 Mbps",
     "resolution": "1920x1080",
-    "presetFileName": "h264-1080p-12mbps.epr"
+    "presetFileName": "h264-1080p-12mbps.epr",
+    "available": true
   }
 ]
 ```
 
-The UI should display the friendly `label`, but it should send only the stable `id` to the backend.
+The UI should display the friendly `label`, but it should send only the stable `id` to the backend. `GET /api/premiere/status` returns this preset metadata with runtime file availability. If the backing `.epr` file is missing or unreadable, `available` is `false` and the object may include `unavailableReason` and `unavailableMessage`.
 
 ## Request JSON
 

@@ -27,6 +27,13 @@ export function PremiereExportDialog({
   selectedPresetId,
   visible,
 }: PremiereExportDialogProps) {
+  const presetOptions = presets.map((preset) => ({
+    ...preset,
+    disabled: preset.available === false,
+    label:
+      preset.available === false ? `${preset.label} (preset file missing)` : preset.label,
+  }))
+  const hasAvailablePresets = presets.some((preset) => preset.available !== false)
   const footer = (
     <div className="premiere-export-dialog-actions">
       <Button
@@ -40,7 +47,7 @@ export function PremiereExportDialog({
       <Button
         type="button"
         label="Queue export"
-        disabled={!selectedPresetId || isSubmitting}
+        disabled={!selectedPresetId || !hasAvailablePresets || isSubmitting}
         loading={isSubmitting}
         onClick={onSubmit}
       />
@@ -64,14 +71,23 @@ export function PremiereExportDialog({
         </p>
         <Dropdown
           value={selectedPresetId}
-          options={presets}
+          options={presetOptions}
           optionLabel="label"
           optionValue="id"
+          optionDisabled="disabled"
           placeholder="Choose export preset"
           className="premiere-export-preset"
           disabled={isSubmitting}
           onChange={(event) => onPresetChange(event.value ?? null)}
         />
+        {!hasAvailablePresets && (
+          <Message
+            severity="warn"
+            text="Add the Adobe .epr preset file to the bridge presets folder before queueing exports."
+            className="premiere-export-error"
+            role="status"
+          />
+        )}
         {error && (
           <Message
             severity="error"

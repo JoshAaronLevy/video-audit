@@ -16,6 +16,10 @@ const getBannerSeverity = (
   }
 
   if (status.status === 'ready') {
+    if (status.presets?.some((preset) => preset.available === false)) {
+      return 'warn'
+    }
+
     return 'success'
   }
 
@@ -47,6 +51,14 @@ const getBannerText = (
   }
 
   if (status.status === 'ready') {
+    const missingPreset = status.presets?.find(
+      (preset) => preset.available === false,
+    )
+
+    if (missingPreset) {
+      return `Premiere bridge is connected, but ${missingPreset.presetFileName || missingPreset.label} is missing from the bridge presets folder.`
+    }
+
     return 'Premiere bridge is connected and ready.'
   }
 
