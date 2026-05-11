@@ -1,0 +1,110 @@
+:root {
+  color: #f3f4f6;
+  background: #1f2329;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+}
+
+body {
+  margin: 0;
+  background: #1f2329;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 16px;
+}
+
+.panel-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.eyebrow {
+  margin: 0;
+  color: #67e8f9;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  color: #ffffff;
+  font-size: 1.35rem;
+  font-weight: 650;
+}
+
+h2 {
+  color: #ffffff;
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.status-card,
+.activity-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #3b424c;
+  border-radius: 8px;
+  background: #252b33;
+}
+
+.status-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.status-label {
+  color: #aeb7c4;
+  white-space: nowrap;
+}
+
+.status-value {
+  color: #ffffff;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.actions {
+  display: grid;
+  gap: 8px;
+}
+
+button {
+  width: 100%;
+  min-height: 32px;
+  border: 1px solid #4b5563;
+  border-radius: 6px;
+  background: #334155;
+  color: #ffffff;
+  font: inherit;
+}
+
+button:hover {
+  background: #3f4f63;
+}
+
+button:disabled {
+  color: #8c96a3;
+  background: #2c333d;
+}
+
+#lastActivity {
+  color: #cbd5e1;
+  overflow-wrap: anywhere;
+}
