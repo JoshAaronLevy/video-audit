@@ -107,8 +107,6 @@ export function useVideoAuditController() {
 
       const payload = (await response.json()) as PremiereStatusResponse
 
-      console.info('[Premiere Bridge] Status payload', payload)
-
       setPremiereStatus(payload)
       const nextPresets = Array.isArray(payload.presets) ? payload.presets : []
       setPremierePresets(nextPresets)

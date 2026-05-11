@@ -68,6 +68,7 @@ type ActiveVideoFilters = {
   fileSize: FileSizeFilterValue[]
   global: string
   resolution: boolean | null
+  status: string | null
 }
 
 type FilterDimension = keyof ActiveVideoFilters
@@ -103,6 +104,13 @@ const fileSizeFilterOptions: SelectOption<FileSizeFilterValue>[] = [
   { label: '250-499 MB', value: 'medium' },
   { label: '500-749 MB', value: 'large' },
   { label: '750+ MB', value: 'very-large' },
+]
+
+const statusFilterOptions: SelectOption<string>[] = [
+  { label: 'Pending', value: 'Pending' },
+  { label: 'Queued', value: 'Queued' },
+  { label: 'Completed', value: 'Completed' },
+  { label: 'Dismissed', value: 'Dismissed' },
 ]
 
 const formatRoundedMegabytes = (value: number | null) =>
@@ -338,6 +346,21 @@ const buildAspectRatioFilterOptions = (
     ),
   )
 
+const buildStatusFilterOptions = (
+  rows: VideoRow[],
+  filters: ActiveVideoFilters,
+) =>
+  statusFilterOptions.map((option) =>
+    withCountLabel(
+      option,
+      rows.filter(
+        (row) =>
+          matchesVideoFilters(row, filters, 'status') &&
+          row.status === option.value,
+      ).length,
+    ),
+  )
+
 const fileSizeFilterTemplate = (
   options: FilterTemplateOptions<FileSizeFilterValue[] | null>,
   fileSizeFilterOptions: SelectOption<FileSizeFilterValue>[],
@@ -436,6 +459,25 @@ const aspectRatioFilterTemplate = (
   />
 )
 
+const statusFilterTemplate = (
+  options: FilterTemplateOptions<string | null>,
+  statusFilterOptions: SelectOption<string>[],
+  onFilterChange: (value: string | null) => void,
+) => (
+  <Dropdown
+    value={options.value}
+    options={statusFilterOptions}
+    onChange={(event) => {
+      const nextValue = event.value ?? null
+      onFilterChange(nextValue)
+      options.filterApplyCallback(nextValue)
+    }}
+    placeholder="Status"
+    className="table-column-filter"
+    showClear
+  />
+)
+
 const fileTemplate = (row: VideoRow) => {
   const displayFile = getRowDisplayFile(row)
 
@@ -484,6 +526,12 @@ const createdDateTemplate = (row: VideoRow) => (
   </div>
 )
 
+const statusTemplate = (row: VideoRow) => (
+  <div className="cell-stack">
+    <span>{row.status}</span>
+  </div>
+)
+
 const skeletonTemplate = () => (
   <Skeleton height="1.35rem" className="table-skeleton" />
 )
@@ -519,6 +567,7 @@ export function VideoTable({
   const [aspectRatioFilterValue, setAspectRatioFilterValue] = useState<
     boolean | null
   >(null)
+  const [statusFilterValue, setStatusFilterValue] = useState<string | null>(null)
   const activeFilters = useMemo<ActiveVideoFilters>(
     () => ({
       aspectRatio: aspectRatioFilterValue,
@@ -527,6 +576,7 @@ export function VideoTable({
       fileSize: fileSizeFilterValue,
       global: globalFilter,
       resolution: resolutionFilterValue,
+      status: statusFilterValue,
     }),
     [
       aspectRatioFilterValue,
@@ -535,6 +585,7 @@ export function VideoTable({
       fileSizeFilterValue,
       globalFilter,
       resolutionFilterValue,
+      statusFilterValue,
     ],
   )
   const visibleVideoCount = useMemo(
@@ -561,6 +612,10 @@ export function VideoTable({
     () => buildAspectRatioFilterOptions(videoRows, activeFilters),
     [activeFilters, videoRows],
   )
+  const countedStatusFilterOptions = useMemo(
+    () => buildStatusFilterOptions(videoRows, activeFilters),
+    [activeFilters, videoRows],
+  )
   const exportButtonLabel =
     selectedVideos.length > 0
       ? `Export to Premiere (${selectedVideos.length.toLocaleString()})`
@@ -569,7 +624,7 @@ export function VideoTable({
   const tableHeader = (
     <div className="table-header">
       <div>
-        <h2>Videos</h2>
+        <h2 className="table-title">Videos</h2>
         <p>
           {isLoading
             ? 'Refreshing videos...'
@@ -638,7 +693,6 @@ export function VideoTable({
         globalFilter={globalFilter}
         globalFilterFields={globalFilterFields}
         stripedRows
-        showGridlines
         responsiveLayout="stack"
         emptyMessage={isLoading ? '' : 'No videos found.'}
       >
@@ -756,6 +810,23 @@ export function VideoTable({
           showFilterMenu={false}
           body={isLoading ? skeletonTemplate : aspectRatioTemplate}
           style={{ width: '11%' }}
+        />
+        <Column
+          field="status"
+          header="Status"
+          sortable={!isLoading}
+          filter={!isLoading}
+          filterMatchMode={FilterMatchMode.EQUALS}
+          filterElement={(options) =>
+            statusFilterTemplate(
+              options as FilterTemplateOptions<string | null>,
+              countedStatusFilterOptions,
+              setStatusFilterValue,
+            )
+          }
+          showFilterMenu={false}
+          body={isLoading ? skeletonTemplate : statusTemplate}
+          style={{ width: '10%' }}
         />
       </DataTable>
     </section>

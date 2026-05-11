@@ -23,6 +23,7 @@ export type VideoRow = {
   isLowResolution: boolean
   isWrongAspectRatio: boolean
   reasons: string
+  status: 'Pending' | 'Queued' | 'Completed' | 'Dismissed' | null
 }
 
 export type StoredVideoData = {

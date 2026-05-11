@@ -597,6 +597,7 @@ async function auditVideos({
       minHeight,
       targetAspectRatio,
       aspectRatioTolerance,
+      status: "Pending",
     });
 
     if (record.isLowResolution || record.isWrongAspectRatio) {

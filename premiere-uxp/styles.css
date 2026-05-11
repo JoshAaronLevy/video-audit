@@ -22,7 +22,9 @@ body {
 .panel-header {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 4px;
+  padding: 1rem;
 }
 
 .eyebrow {
@@ -67,6 +69,13 @@ h2 {
   display: flex;
   justify-content: space-between;
   gap: 12px;
+  margin: 0.75rem 0;
+}
+
+.button-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .status-label {
@@ -88,6 +97,8 @@ h2 {
 sp-button {
   width: 100%;
   min-height: 32px;
+  padding: 0.5rem;
+  margin: 1rem 0;
   border: 1px solid #4b5563;
   border-radius: 6px;
   background: #334155;
@@ -97,6 +108,7 @@ sp-button {
 
 sp-button:hover {
   background: #3f4f63;
+  cursor: pointer;
 }
 
 sp-button:disabled {

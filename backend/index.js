@@ -361,7 +361,6 @@ app.get("/api/health", (req, res) => {
 
 app.get("/api/premiere/status", async (req, res) => {
   try {
-    console.log("[Premiere Bridge] GET /api/premiere/status");
     const status = await getPremiereStatus();
     console.log("[Premiere Bridge] Status result.", {
       status: status.status,

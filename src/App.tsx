@@ -55,11 +55,13 @@ function App() {
     <main className={`app-shell ${hasTableSurface ? 'has-data' : ''}`}>
       <Toast ref={toast} position="top-center" />
 
-      <PremiereStatusBanner
-        isLoading={isPremiereStatusLoading}
-        onRetry={checkPremiereStatus}
-        status={premiereStatus}
-      />
+      {premiereStatus?.status !== 'ready' && (
+        <PremiereStatusBanner
+          isLoading={isPremiereStatusLoading}
+          onRetry={checkPremiereStatus}
+          status={premiereStatus}
+        />
+      )}
 
       <UploadPanel
         auditPercent={auditPercent}

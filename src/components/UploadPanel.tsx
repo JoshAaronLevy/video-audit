@@ -37,7 +37,10 @@ export function UploadPanel({
   return (
     <section className="upload-panel" aria-labelledby="upload-heading">
       <p className="eyebrow">Video Audit</p>
+
+      {!videoRows && (
       <h2 id="upload-heading">Select a folder to scan for low resolution videos</h2>
+      )}
 
       {!videoRows && (
         <div className="upload-actions">
