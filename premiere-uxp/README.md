@@ -6,7 +6,7 @@ This is the Premiere Pro UXP plugin scaffold for the Video Audit filesystem brid
 
 - Premiere Pro 26.0 or newer.
 - UXP Developer Tool.
-- Adobe Media Encoder for later export queue stages.
+- Adobe Media Encoder for queued exports.
 
 ## Development Loading
 
@@ -35,4 +35,6 @@ The backend writes requests to:
 ~/VideoAudit/premiere-bridge/requests/
 ```
 
-This Stage 6 scaffold validates bridge access, writes heartbeat status, polls `requests/`, and moves malformed or currently unimplemented export requests to `failed/` with an explanatory error. The actual Premiere import, 1920x1080 sequence creation, completed-request records, and Adobe Media Encoder queueing are implemented in Stage 7.
+The plugin validates bridge access, writes heartbeat status, polls `requests/`, imports each selected video into the active Premiere project, creates one 1920x1080 `Video Audit` sequence per video, and queues each sequence in Adobe Media Encoder with the selected `.epr` preset. It moves successful requests to `completed/` with queued job details and failed requests to `failed/` with error information.
+
+The plugin only queues jobs in Adobe Media Encoder. It does not start the Media Encoder queue automatically.
