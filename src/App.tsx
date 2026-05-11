@@ -1,4 +1,6 @@
 import { Toast } from 'primereact/toast'
+import { Message } from 'primereact/message'
+import { Button } from 'primereact/button'
 import 'primereact/resources/themes/lara-light-cyan/theme.css'
 import 'primereact/resources/primereact.min.css'
 import 'primeflex/primeflex.css'
@@ -11,56 +13,87 @@ function App() {
   const {
     auditPercent,
     auditProgress,
+    canRefresh,
     error,
     fileName,
-    fileUploadRef,
     folderPathInputRef,
     folderPathTestSummary,
     globalFilter,
     handleClearData,
-    handleFileSelect,
     handleFolderPathSelect,
     handleOpenFolderPathTest,
+    handleRefreshData,
     isAuditActive,
     isAuditVisible,
     isPersisted,
+    isTableLoading,
     setGlobalFilter,
     toast,
     videoRows,
   } = useVideoAuditController()
+  const hasTableSurface = videoRows !== null || isTableLoading
+  const tableError = hasTableSurface ? error : null
 
   return (
-    <main className={`app-shell ${videoRows ? 'has-data' : ''}`}>
+    <main className={`app-shell ${hasTableSurface ? 'has-data' : ''}`}>
       <Toast ref={toast} position="top-center" />
 
       <UploadPanel
         auditPercent={auditPercent}
         auditProgress={auditProgress}
-        error={error}
-        fileUploadRef={fileUploadRef}
+        error={hasTableSurface ? null : error}
         folderPathInputRef={folderPathInputRef}
         folderPathTestSummary={folderPathTestSummary}
         isAuditActive={isAuditActive}
         isAuditVisible={isAuditVisible}
-        onFileSelect={handleFileSelect}
         onFolderAuditClick={handleOpenFolderPathTest}
         onFolderPathSelect={handleFolderPathSelect}
         videoRows={videoRows}
       />
 
-      {videoRows && (
-        <VideoTable
-          fileName={fileName}
-          fileUploadRef={fileUploadRef}
-          globalFilter={globalFilter}
-          isAuditActive={isAuditActive}
-          isPersisted={isPersisted}
-          onClearData={handleClearData}
-          onFileSelect={handleFileSelect}
-          onFolderAuditClick={handleOpenFolderPathTest}
-          onGlobalFilterChange={setGlobalFilter}
-          videoRows={videoRows}
-        />
+      {tableError ? (
+        <section className="table-section" aria-label="Audit error">
+          <div className="table-error-panel">
+            <Message
+              severity="error"
+              text={tableError}
+              className="table-error"
+              role="alert"
+            />
+            <div className="table-actions">
+              <Button
+                type="button"
+                label="Refresh"
+                severity="secondary"
+                outlined
+                disabled={isAuditActive || isTableLoading || !canRefresh}
+                onClick={handleRefreshData}
+              />
+              <Button
+                type="button"
+                label="Clear cache"
+                severity="secondary"
+                text
+                onClick={handleClearData}
+              />
+            </div>
+          </div>
+        </section>
+      ) : (
+        hasTableSurface && (
+          <VideoTable
+            canRefresh={canRefresh}
+            fileName={fileName}
+            globalFilter={globalFilter}
+            isAuditActive={isAuditActive}
+            isLoading={isTableLoading}
+            isPersisted={isPersisted}
+            onClearData={handleClearData}
+            onGlobalFilterChange={setGlobalFilter}
+            onRefreshData={handleRefreshData}
+            videoRows={videoRows ?? []}
+          />
+        )
       )}
     </main>
   )

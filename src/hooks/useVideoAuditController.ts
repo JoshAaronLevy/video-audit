@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
-import { FileUpload } from 'primereact/fileupload'
-import type { FileUploadSelectEvent } from 'primereact/fileupload'
 import { Toast } from 'primereact/toast'
 import {
   apiBaseUrl,
@@ -17,19 +15,18 @@ import {
 import type {
   AuditProgress,
   AuditProgressPayload,
+  AuditRequestPayload,
   AuditResultResponse,
   AuditStartResponse,
   FolderPathTestSummary,
   StoredVideoData,
   VideoRow,
-  VideoSource,
 } from '../types/video'
 
 export function useVideoAuditController() {
   const [initialData] = useState<StoredVideoData | null>(() =>
     loadStoredVideoData(),
   )
-  const fileUploadRef = useRef<FileUpload>(null)
   const folderPathInputRef = useRef<HTMLInputElement | null>(null)
   const auditEventSourceRef = useRef<EventSource | null>(null)
   const toast = useRef<Toast>(null)
@@ -40,7 +37,11 @@ export function useVideoAuditController() {
   const [videoRows, setVideoRows] = useState<VideoRow[] | null>(
     () => initialData?.rows ?? null,
   )
+  const [storedPayload, setStoredPayload] = useState<string | null>(
+    () => initialData?.payload ?? null,
+  )
   const [isPersisted, setIsPersisted] = useState(() => Boolean(initialData))
+  const [isTableLoading, setIsTableLoading] = useState(false)
   const [globalFilter, setGlobalFilter] = useState('')
   const [folderPathTestSummary, setFolderPathTestSummary] =
     useState<FolderPathTestSummary | null>(null)
@@ -67,9 +68,37 @@ export function useVideoAuditController() {
     )
   }
 
+  const parseAuditRequestPayload = (
+    payloadJson: string,
+  ): AuditRequestPayload => {
+    const parsedPayload: unknown = JSON.parse(payloadJson)
+
+    if (
+      !parsedPayload ||
+      typeof parsedPayload !== 'object' ||
+      Array.isArray(parsedPayload)
+    ) {
+      throw new Error('Saved refresh payload is not valid.')
+    }
+
+    const candidate = parsedPayload as Partial<AuditRequestPayload>
+
+    if (
+      typeof candidate.rootPath !== 'string' ||
+      !candidate.sampleFile ||
+      typeof candidate.sampleFile !== 'object' ||
+      Array.isArray(candidate.sampleFile)
+    ) {
+      throw new Error('Saved refresh payload is not valid.')
+    }
+
+    return parsedPayload as AuditRequestPayload
+  }
+
   const handleAuditResult = async (
     jobId: string,
     resolvedDirectory: string | null,
+    requestPayloadJson: string,
   ) => {
     const response = await fetch(`${apiBaseUrl}/api/audits/${jobId}/result`)
 
@@ -86,10 +115,18 @@ export function useVideoAuditController() {
     const trimmedRows = result.videos.map((video) => toVideoRow(video))
     const displayDirectory =
       resolvedDirectory || result.summary.resolvedDirectory || 'selected folder'
+    const nextFileName = `${displayDirectory}`
+    const persisted = saveVideoData({
+      fileName: nextFileName,
+      payload: requestPayloadJson,
+      rows: trimmedRows,
+    })
 
     setVideoRows(trimmedRows)
-    setFileName(`Audit: ${displayDirectory}`)
-    setIsPersisted(false)
+    setFileName(nextFileName)
+    setStoredPayload(requestPayloadJson)
+    setIsPersisted(persisted)
+    setIsTableLoading(false)
     setGlobalFilter('')
     setError(null)
     setAuditProgress((currentProgress) => ({
@@ -105,116 +142,28 @@ export function useVideoAuditController() {
       message: 'Audit complete.',
     }))
     toast.current?.show({
-      severity: 'success',
+      severity: persisted ? 'success' : 'warn',
       summary: 'Audit complete',
-      detail: `${result.summary.flaggedCount.toLocaleString()} flagged videos found.`,
+      detail: persisted
+        ? `${result.summary.flaggedCount.toLocaleString()} flagged videos found and saved locally.`
+        : `${result.summary.flaggedCount.toLocaleString()} flagged videos found, but could not be saved locally.`,
       life: 4200,
     })
   }
 
-  const loadSelectedFile = async (selectedFile: File | undefined) => {
-    if (!selectedFile) {
-      return
-    }
-
+  const startAudit = async (requestPayloadJson: string) => {
     try {
-      closeAuditEventSource()
-      setAuditProgress(initialAuditProgress)
-      setError(null)
-      const fileContents = await selectedFile.text()
-      const parsedData: unknown = JSON.parse(fileContents)
+      const requestPayload = parseAuditRequestPayload(requestPayloadJson)
 
-      if (!Array.isArray(parsedData)) {
-        throw new Error('The selected JSON file must contain an array of videos.')
+      closeAuditEventSource()
+      setError(null)
+      setGlobalFilter('')
+
+      if (videoRows !== null) {
+        setVideoRows([])
+        setIsTableLoading(true)
       }
 
-      const trimmedRows = parsedData.map((item) => {
-        if (!item || typeof item !== 'object' || Array.isArray(item)) {
-          throw new Error('Each video record in the JSON file must be an object.')
-        }
-
-        return toVideoRow(item as VideoSource)
-      })
-
-      const persisted = saveVideoData({
-        fileName: selectedFile.name,
-        rows: trimmedRows,
-      })
-
-      setVideoRows(trimmedRows)
-      setFileName(selectedFile.name)
-      setIsPersisted(persisted)
-      setGlobalFilter('')
-      toast.current?.show({
-        severity: persisted ? 'success' : 'warn',
-        summary: 'JSON loaded',
-        detail: persisted
-          ? `${trimmedRows.length.toLocaleString()} videos found and saved locally.`
-          : `${trimmedRows.length.toLocaleString()} videos found, but could not be saved for refresh.`,
-        life: 4200,
-      })
-    } catch (caughtError) {
-      const message =
-        caughtError instanceof Error
-          ? caughtError.message
-          : 'Unable to load this JSON file.'
-
-      setError(message)
-    } finally {
-      fileUploadRef.current?.clear()
-    }
-  }
-
-  const handleFileSelect = (event: FileUploadSelectEvent) => {
-    void loadSelectedFile(event.files[0])
-  }
-
-  const handleOpenFolderPathTest = () => {
-    folderPathInputRef.current?.click()
-  }
-
-  const handleFolderPathSelect = async (event: ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = Array.from(event.currentTarget.files ?? [])
-    const manifest = toFolderPathManifest(event.currentTarget.files)
-    const summary: FolderPathTestSummary = {
-      totalSelectedFiles: selectedFiles.length,
-      videoFileCount: manifest.length,
-      rootPath: manifest[0]?.rootPath ?? null,
-      firstRelativePath: manifest[0]?.relativePath ?? null,
-    }
-
-    setFolderPathTestSummary(summary)
-    event.currentTarget.value = ''
-
-    if (manifest.length === 0) {
-      const message = 'The selected folder does not contain any video files.'
-      setError(message)
-      toast.current?.show({
-        severity: 'warn',
-        summary: 'No videos found',
-        detail: message,
-        life: 4200,
-      })
-      return
-    }
-
-    const sampleFile = manifest[0]
-
-    if (!sampleFile.rootPath) {
-      const message = 'Unable to determine the selected folder root.'
-      setError(message)
-      toast.current?.show({
-        severity: 'error',
-        summary: 'Folder audit unavailable',
-        detail: message,
-        life: 4200,
-      })
-      return
-    }
-
-    try {
-      closeAuditEventSource()
-      setError(null)
       setAuditProgress({
         ...initialAuditProgress,
         status: 'starting',
@@ -225,10 +174,7 @@ export function useVideoAuditController() {
       const response = await fetch(`${apiBaseUrl}/api/audits`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rootPath: sampleFile.rootPath,
-          sampleFile,
-        }),
+        body: JSON.stringify(requestPayload),
       })
       const payload = (await response.json()) as AuditStartResponse
 
@@ -283,13 +229,18 @@ export function useVideoAuditController() {
         closeAuditEventSource()
         updateAuditProgress(completePayload, 'complete')
 
-        void handleAuditResult(jobId, resolvedDirectory).catch((caughtError) => {
+        void handleAuditResult(
+          jobId,
+          resolvedDirectory,
+          requestPayloadJson,
+        ).catch((caughtError) => {
           const message =
             caughtError instanceof Error
               ? caughtError.message
               : 'Unable to load completed audit results.'
 
           setError(message)
+          setIsTableLoading(false)
           setAuditProgress((currentProgress) => ({
             ...currentProgress,
             status: 'error',
@@ -319,6 +270,7 @@ export function useVideoAuditController() {
 
           closeAuditEventSource()
           setError(message)
+          setIsTableLoading(false)
           updateAuditProgress(errorPayload, 'error')
           toast.current?.show({
             severity: 'error',
@@ -332,6 +284,7 @@ export function useVideoAuditController() {
         const message = 'Lost connection to the backend audit progress stream.'
         closeAuditEventSource()
         setError(message)
+        setIsTableLoading(false)
         setAuditProgress((currentProgress) => ({
           ...currentProgress,
           status: 'error',
@@ -352,6 +305,7 @@ export function useVideoAuditController() {
           : 'Unable to start the backend audit.'
 
       setError(message)
+      setIsTableLoading(false)
       setAuditProgress((currentProgress) => ({
         ...currentProgress,
         status: 'error',
@@ -366,13 +320,83 @@ export function useVideoAuditController() {
     }
   }
 
+  const handleOpenFolderPathTest = () => {
+    folderPathInputRef.current?.click()
+  }
+
+  const handleFolderPathSelect = async (event: ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(event.currentTarget.files ?? [])
+    const manifest = toFolderPathManifest(event.currentTarget.files)
+    const summary: FolderPathTestSummary = {
+      totalSelectedFiles: selectedFiles.length,
+      videoFileCount: manifest.length,
+      rootPath: manifest[0]?.rootPath ?? null,
+      firstRelativePath: manifest[0]?.relativePath ?? null,
+    }
+
+    setFolderPathTestSummary(summary)
+    event.currentTarget.value = ''
+
+    if (manifest.length === 0) {
+      const message = 'The selected folder does not contain any video files.'
+      setError(message)
+      toast.current?.show({
+        severity: 'warn',
+        summary: 'No videos found',
+        detail: message,
+        life: 4200,
+      })
+      return
+    }
+
+    const sampleFile = manifest[0]
+
+    if (!sampleFile.rootPath) {
+      const message = 'Unable to determine the selected folder root.'
+      setError(message)
+      toast.current?.show({
+        severity: 'error',
+        summary: 'Folder audit unavailable',
+        detail: message,
+        life: 4200,
+      })
+      return
+    }
+
+    const requestPayload: AuditRequestPayload = {
+      rootPath: sampleFile.rootPath,
+      sampleFile,
+    }
+
+    await startAudit(JSON.stringify(requestPayload))
+  }
+
+  const handleRefreshData = async () => {
+    if (!storedPayload) {
+      const message = 'No saved scan payload is available. Scan a folder again.'
+      setError(message)
+      toast.current?.show({
+        severity: 'warn',
+        summary: 'Refresh unavailable',
+        detail: message,
+        life: 4200,
+      })
+      return
+    }
+
+    await startAudit(storedPayload)
+  }
+
   const handleClearData = () => {
     closeAuditEventSource()
     clearStoredVideoData()
     setVideoRows(null)
     setFileName(null)
+    setStoredPayload(null)
     setGlobalFilter('')
     setIsPersisted(false)
+    setIsTableLoading(false)
+    setFolderPathTestSummary(null)
     setError(null)
     setAuditProgress(initialAuditProgress)
   }
@@ -387,17 +411,18 @@ export function useVideoAuditController() {
     auditProgress,
     error,
     fileName,
-    fileUploadRef,
     folderPathInputRef,
     folderPathTestSummary,
     globalFilter,
     handleClearData,
-    handleFileSelect,
     handleFolderPathSelect,
     handleOpenFolderPathTest,
+    handleRefreshData,
     isAuditActive,
     isAuditVisible,
     isPersisted,
+    isTableLoading,
+    canRefresh: Boolean(storedPayload),
     setGlobalFilter,
     toast,
     videoRows,

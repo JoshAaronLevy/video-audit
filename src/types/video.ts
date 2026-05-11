@@ -27,6 +27,7 @@ export type VideoRow = {
 
 export type StoredVideoData = {
   fileName: string | null
+  payload: string | null
   rows: VideoRow[]
 }
 
@@ -41,6 +42,11 @@ export type FolderPathTestSummary = {
   videoFileCount: number
   rootPath: string | null
   firstRelativePath: string | null
+}
+
+export type AuditRequestPayload = {
+  rootPath: string
+  sampleFile: FolderPathManifestItem
 }
 
 export type AuditProgress = {

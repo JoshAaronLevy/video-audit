@@ -102,7 +102,7 @@
 }
 
 .audit-progress {
-  width: min(720px, 100%);
+  width: 90vw;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -137,7 +137,7 @@
 }
 
 .table-section {
-  width: min(1280px, 100%);
+  width: 90vw;
   max-width: 100%;
   min-width: 0;
   justify-self: center;
@@ -164,6 +164,21 @@
   border-top-right-radius: 8px;
 }
 
+.table-error-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.table-error-panel .table-error {
+  margin: 0;
+}
+
 .table-header {
   display: flex;
   align-items: center;
@@ -176,8 +191,15 @@
 }
 
 .table-header p {
+  margin: 0;
   color: var(--text);
   font-size: 0.95rem;
+}
+
+.table-header .table-visible-count {
+  margin-top: 4px;
+  color: #000000;
+  font-weight: 700;
 }
 
 .table-actions {
@@ -188,6 +210,10 @@
 
 .table-actions .p-inputtext {
   width: min(280px, 42vw);
+}
+
+.table-column-filter {
+  width: 100%;
 }
 
 .cell-stack {
@@ -221,6 +247,32 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.p-datatable .p-datatable-thead > tr > th {
+  padding: 0.5rem !important;
+}
+
+.p-column-filter-row .p-column-filter-element {
+  width: 100% !important;
+}
+
+.p-dropdown .p-dropdown-trigger {
+  width: 2rem !important;
+}
+
+.p-multiselect .p-multiselect-trigger {
+  width: 2rem !important;
+}
+
+.p-fluid .p-dropdown .p-dropdown-label {
+  padding: 0.5rem !important;
+  width: 100% !important;
+}
+
+.p-multiselect .p-multiselect-label {
+  padding: 0.5rem !important;
+  width: 100% !important;
 }
 
 @media (max-width: 760px) {
@@ -258,7 +310,8 @@
   }
 
   .table-header,
-  .table-actions {
+  .table-actions,
+  .table-error-panel {
     align-items: stretch;
     flex-direction: column;
   }

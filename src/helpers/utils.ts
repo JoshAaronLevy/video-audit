@@ -200,6 +200,7 @@ export const loadStoredVideoData = (): StoredVideoData | null => {
 
     const storedSource = storedValue as {
       fileName?: unknown
+      payload?: unknown
       rows?: unknown
     }
 
@@ -218,6 +219,8 @@ export const loadStoredVideoData = (): StoredVideoData | null => {
     return {
       fileName:
         typeof storedSource.fileName === 'string' ? storedSource.fileName : null,
+      payload:
+        typeof storedSource.payload === 'string' ? storedSource.payload : null,
       rows,
     }
   } catch {
