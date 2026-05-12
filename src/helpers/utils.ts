@@ -161,6 +161,30 @@ const getDisplayDirectory = (path: string, directory: string) => {
 export const getRowDisplayFile = (row: VideoRow) =>
   getDisplayFile(row.path, row.fileName, row.displayFile)
 
+const getFileNameFromPath = (value: string) =>
+  value.split(/[\\/]+/).filter(Boolean).at(-1) ?? value
+
+const removeFinalExtension = (fileName: string) => {
+  const extensionIndex = fileName.lastIndexOf('.')
+
+  if (extensionIndex <= 0) {
+    return fileName
+  }
+
+  return fileName.slice(0, extensionIndex)
+}
+
+export const getRowDisplayFileName = (row: VideoRow) => {
+  const fileName =
+    row.fileName ||
+    getFileNameFromPath(row.displayFile) ||
+    getFileNameFromPath(row.path) ||
+    'Untitled video'
+  const displayFileName = removeFinalExtension(fileName)
+
+  return row.displayDirectory ? `../${displayFileName}` : displayFileName
+}
+
 export const toVideoRow = (source: VideoSource): VideoRow => ({
   displayFile: getDisplayFile(
     readString(source, 'path'),

@@ -7,12 +7,14 @@ import { FilterMatchMode } from 'primereact/api'
 import { InputText } from 'primereact/inputtext'
 import { MultiSelect } from 'primereact/multiselect'
 import { Skeleton } from 'primereact/skeleton'
+import { Tooltip } from 'primereact/tooltip'
 import type { VideoRow, VideoStatus } from '../types/video'
 import {
   formatDate,
   formatDuration,
   formatNumber,
   getRowDisplayFile,
+  getRowDisplayFileName,
   globalFilterFields,
   isAutoCropCandidate,
 } from '../helpers/utils'
@@ -511,11 +513,14 @@ const statusFilterTemplate = (
 )
 
 const fileTemplate = (row: VideoRow) => {
-  const displayFile = getRowDisplayFile(row)
+  const displayFileName = getRowDisplayFileName(row)
+  const tooltipValue = getRowDisplayFile(row)
 
   return (
     <div className="cell-stack file-cell">
-      <span>{displayFile}</span>
+      <span className="file-cell-tooltip" data-pr-tooltip={tooltipValue}>
+        {displayFileName}
+      </span>
     </div>
   )
 }
@@ -743,6 +748,7 @@ export function VideoTable({
 
   return (
     <section className="table-section" aria-label="Loaded videos">
+      <Tooltip target=".file-cell-tooltip" position="top" showDelay={2000} />
       <DataTable
         value={isLoading ? loadingRows : videoRows}
         header={tableHeader}
