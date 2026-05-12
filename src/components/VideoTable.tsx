@@ -547,7 +547,11 @@ const aspectRatioTemplate = (row: VideoRow) => (
 )
 
 const cropTemplate = (row: VideoRow) => {
-  return <span>{isAutoCropCandidate(row) ? 'Yes' : 'No'}</span>
+  return (
+    <div className="cell-stack">
+      <span>{isAutoCropCandidate(row) ? 'Yes' : 'No'}</span>
+    </div>
+  )
 }
 
 const modifiedDateTemplate = (row: VideoRow) => (
@@ -761,8 +765,9 @@ export function VideoTable({
         globalFilter={globalFilter}
         globalFilterFields={globalFilterFields}
         stripedRows
-        size='small'
-        responsiveLayout="stack"
+        size="small"
+        scrollable
+        tableStyle={{ minWidth: '1160px' }}
         emptyMessage={isLoading ? '' : 'No videos found.'}
       >
         <Column

@@ -392,12 +392,25 @@
 
 .table-section .p-datatable-wrapper {
   max-width: 100%;
-  overflow-x: visible;
+  overflow-x: auto;
 }
 
 .video-table .p-datatable-table {
   width: 100%;
+  min-width: 1160px;
   table-layout: fixed;
+}
+
+.video-table .p-datatable-thead > tr > th,
+.video-table .p-datatable-thead > tr > th .p-column-title,
+.video-table .p-datatable-thead > tr > th .p-column-header-content,
+.video-table .p-datatable-tbody > tr > td {
+  white-space: nowrap;
+}
+
+.video-table .p-datatable-thead > tr > th {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .table-section .p-datatable-header {
@@ -466,6 +479,15 @@
   line-height: 1.35;
 }
 
+.video-table .cell-stack > span {
+  display: block;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .cell-title {
   color: #161F25;
   font-weight: 700;
@@ -481,7 +503,7 @@
 .file-cell,
 .issue-cell,
 .table-section .p-datatable-tbody > tr > td {
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
   word-break: normal;
 }
 
