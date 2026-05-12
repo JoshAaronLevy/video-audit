@@ -58,6 +58,24 @@ Use real Adobe `.epr` export presets. For the MVP, place this file at:
 
 The UI shows the friendly preset label, but sends only the stable preset ID to the backend. The backend maps that ID to the `.epr` filename and rejects export requests when the file is missing or unreadable.
 
+## Black-Border Analysis And Auto-Crop
+
+Folder audits can optionally run FFmpeg `cropdetect` analysis by sending `includeBlackBorderAnalysis: true` in the audit request. When enabled, flagged video records may include `adjustments.blackBorder` with the detected visible area, border sizes, confidence, and auto-crop eligibility. Existing audits still skip this extra FFmpeg analysis unless the request explicitly opts in.
+
+Auto-crop is a separate backend workflow from the Premiere bridge. It uses FFmpeg directly, only processes high-confidence 16:9 nested-border candidates, and writes cropped MP4 files into a unique run folder such as:
+
+```txt
+~/Movies/Edited/AutoCropped/video-audit-crop-<timestamp>/
+```
+
+The backend writes `manifest.in-progress.json` during the run and renames it to `manifest.json` when complete. Source files are never modified, overwritten, deleted, or cropped in place. Cropped outputs can later be scanned or selected for the Premiere export workflow if needed.
+
+## Video Migration / Replacement
+
+The backend exposes a dry-run and execution workflow for replacing an audited destination library with newly edited exports. New videos are copied from the selected source folder into the audited destination root as a flat structure. Existing destination files with exact matching filenames are moved into a unique sibling archive run folder, and the run writes `manifest.in-progress.json`, `manifest.json`, and `operation.log` for recovery.
+
+New source files are never deleted or moved. Old destination files are archived, not permanently deleted. Actual disk space is not reclaimed until the archive folder is manually reviewed and deleted.
+
 ## Load The UXP Plugin
 
 1. Open Premiere Pro.

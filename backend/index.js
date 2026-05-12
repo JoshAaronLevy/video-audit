@@ -7,6 +7,14 @@ require("dotenv").config();
 
 const { auditVideos } = require("./utils/fileAudit");
 const {
+  runAutoCrop,
+  validateAutoCropRequest,
+} = require("./utils/autoCrop");
+const {
+  executeMigration,
+  scanMigration,
+} = require("./utils/videoMigration");
+const {
   createPremiereExportRequest,
   getPremiereStatus,
 } = require("./utils/premiereBridge");
@@ -29,6 +37,9 @@ const SYSTEM_DIRECTORY_NAMES = new Set([
 const PORT = Number(process.env.PORT || 3001);
 const HOST = process.env.HOST || "127.0.0.1";
 const jobs = new Map();
+const autoCropJobs = new Map();
+const migrationPlans = new Map();
+const migrationJobs = new Map();
 
 function getSearchRoots() {
   const configuredRoots = process.env.SEARCH_ROOTS
@@ -152,6 +163,13 @@ function validateAuditRequest(body) {
     return "sampleFile.relativePath must be a relative file path.";
   }
 
+  if (
+    body.includeBlackBorderAnalysis !== undefined &&
+    typeof body.includeBlackBorderAnalysis !== "boolean"
+  ) {
+    return "includeBlackBorderAnalysis must be a boolean when provided.";
+  }
+
   return null;
 }
 
@@ -220,7 +238,7 @@ async function resolveSelectedFolder({ rootPath, sampleFile }) {
   return Array.from(matches.values());
 }
 
-function createJob({ resolvedDirectory }) {
+function createJob({ resolvedDirectory, includeBlackBorderAnalysis = false }) {
   const id = crypto.randomUUID();
   const job = {
     id,
@@ -236,6 +254,7 @@ function createJob({ resolvedDirectory }) {
     message: "Selected folder resolved.",
     result: null,
     error: null,
+    includeBlackBorderAnalysis,
     listeners: new Set(),
   };
 
@@ -257,6 +276,7 @@ function serializeJob(job) {
     currentFile: job.currentFile,
     message: job.message,
     error: job.error,
+    includeBlackBorderAnalysis: job.includeBlackBorderAnalysis,
   };
 }
 
@@ -290,6 +310,7 @@ async function runAuditJob(jobId) {
   try {
     const result = await auditVideos({
       directoryPath: job.resolvedDirectory,
+      includeBlackBorderAnalysis: job.includeBlackBorderAnalysis,
       onProgress(progress) {
         updateJobFromProgress(job, progress);
 
@@ -337,6 +358,210 @@ async function runAuditJob(jobId) {
 function sendSse(res, eventName, data) {
   res.write(`event: ${eventName}\n`);
   res.write(`data: ${JSON.stringify(data)}\n\n`);
+}
+
+function createAutoCropJob({ videos, outputRootDir }) {
+  const id = crypto.randomUUID();
+  const job = {
+    id,
+    status: "queued",
+    phase: "queued",
+    outputRootDir,
+    outputDir: null,
+    totalFiles: videos.length,
+    processedFiles: 0,
+    succeededCount: 0,
+    skippedCount: 0,
+    errorCount: 0,
+    currentFile: "",
+    message: "Auto-crop job queued.",
+    videos,
+    result: null,
+    error: null,
+    listeners: new Set(),
+  };
+
+  autoCropJobs.set(id, job);
+  return job;
+}
+
+function serializeAutoCropJob(job) {
+  return {
+    jobId: job.id,
+    status: job.status,
+    phase: job.phase,
+    outputRootDir: job.outputRootDir,
+    outputDir: job.outputDir,
+    totalFiles: job.totalFiles,
+    processedFiles: job.processedFiles,
+    succeededCount: job.succeededCount,
+    skippedCount: job.skippedCount,
+    errorCount: job.errorCount,
+    currentFile: job.currentFile,
+    message: job.message,
+    error: job.error,
+  };
+}
+
+function broadcastAutoCrop(job, eventName, data = serializeAutoCropJob(job)) {
+  for (const listener of job.listeners) {
+    listener(eventName, data);
+  }
+}
+
+function updateAutoCropJobFromProgress(job, progress) {
+  job.status = "running";
+  job.phase = progress.phase ?? job.phase;
+  job.outputDir = progress.outputDir ?? job.outputDir;
+  job.totalFiles = progress.totalFiles ?? job.totalFiles;
+  job.processedFiles = progress.processedFiles ?? job.processedFiles;
+  job.succeededCount = progress.succeededCount ?? job.succeededCount;
+  job.skippedCount = progress.skippedCount ?? job.skippedCount;
+  job.errorCount = progress.errorCount ?? job.errorCount;
+  job.currentFile = progress.currentFile ?? job.currentFile;
+  job.message = progress.message ?? job.message;
+}
+
+async function runAutoCropJob(jobId) {
+  const job = autoCropJobs.get(jobId);
+  if (!job) return;
+
+  job.status = "running";
+  job.phase = "cropping";
+  job.message = "Cropping selected videos...";
+  broadcastAutoCrop(job, "progress");
+
+  try {
+    const result = await runAutoCrop({
+      videos: job.videos,
+      outputRootDir: job.outputRootDir,
+      onProgress(progress) {
+        updateAutoCropJobFromProgress(job, progress);
+
+        if (progress.phase !== "complete") {
+          broadcastAutoCrop(job, "progress");
+        }
+      },
+    });
+
+    job.status = "complete";
+    job.phase = "complete";
+    job.outputDir = result.outputDir;
+    job.totalFiles = result.summary.requested;
+    job.processedFiles = result.summary.requested;
+    job.succeededCount = result.summary.succeeded;
+    job.skippedCount = result.summary.skipped;
+    job.errorCount = result.summary.failed;
+    job.currentFile = "";
+    job.message = "Auto-crop complete.";
+    job.result = result;
+
+    broadcastAutoCrop(job, "complete", serializeAutoCropJob(job));
+  } catch (error) {
+    job.status = "error";
+    job.phase = "error";
+    job.error = error.message;
+    job.message = error.message;
+
+    broadcastAutoCrop(job, "error", serializeAutoCropJob(job));
+  }
+}
+
+function createMigrationJob(plan) {
+  const job = {
+    id: plan.migrationId,
+    status: "queued",
+    phase: "planning",
+    totalFiles: plan.items.length,
+    processedFiles: 0,
+    copiedCount: 0,
+    archivedCount: 0,
+    failedCount: 0,
+    currentFile: "",
+    message: "Migration job queued.",
+    plan,
+    result: null,
+    error: null,
+    listeners: new Set(),
+  };
+
+  migrationJobs.set(job.id, job);
+  return job;
+}
+
+function serializeMigrationJob(job) {
+  return {
+    migrationId: job.id,
+    status: job.status,
+    phase: job.phase,
+    totalFiles: job.totalFiles,
+    processedFiles: job.processedFiles,
+    copiedCount: job.copiedCount,
+    archivedCount: job.archivedCount,
+    failedCount: job.failedCount,
+    currentFile: job.currentFile,
+    message: job.message,
+    error: job.error,
+  };
+}
+
+function broadcastMigration(job, eventName, data = serializeMigrationJob(job)) {
+  for (const listener of job.listeners) {
+    listener(eventName, data);
+  }
+}
+
+function updateMigrationJobFromProgress(job, progress) {
+  job.status = progress.status === "complete" ? "complete" : "running";
+  job.phase = progress.phase ?? job.phase;
+  job.totalFiles = progress.totalFiles ?? job.totalFiles;
+  job.processedFiles = progress.processedFiles ?? job.processedFiles;
+  job.copiedCount = progress.copiedCount ?? job.copiedCount;
+  job.archivedCount = progress.archivedCount ?? job.archivedCount;
+  job.failedCount = progress.failedCount ?? job.failedCount;
+  job.currentFile = progress.currentFile ?? job.currentFile;
+  job.message = progress.message ?? job.message;
+}
+
+async function runMigrationJob(migrationId) {
+  const job = migrationJobs.get(migrationId);
+  if (!job) return;
+
+  job.status = "running";
+  job.phase = "copying_temp";
+  job.message = "Starting migration...";
+  broadcastMigration(job, "progress");
+
+  try {
+    const result = await executeMigration(job.plan, {
+      onProgress(progress) {
+        updateMigrationJobFromProgress(job, progress);
+
+        if (progress.phase !== "complete") {
+          broadcastMigration(job, "progress");
+        }
+      },
+    });
+
+    job.status = "complete";
+    job.phase = "complete";
+    job.processedFiles = job.totalFiles;
+    job.copiedCount = result.summary.filesCopiedToDestination;
+    job.archivedCount = result.summary.destinationMatchesArchived;
+    job.failedCount = result.summary.failedItems;
+    job.currentFile = "";
+    job.message = "Migration complete.";
+    job.result = result;
+
+    broadcastMigration(job, "complete", serializeMigrationJob(job));
+  } catch (error) {
+    job.status = "error";
+    job.phase = "error";
+    job.error = error.message;
+    job.message = error.message;
+
+    broadcastMigration(job, "error", serializeMigrationJob(job));
+  }
 }
 
 const app = express();
@@ -402,6 +627,260 @@ app.post("/api/premiere/export-requests", async (req, res) => {
   }
 });
 
+app.post("/api/adjustments/auto-crop", async (req, res) => {
+  const validation = await validateAutoCropRequest(req.body);
+
+  if (!validation.ok) {
+    res.status(400).json({
+      status: "invalid_request",
+      message: validation.error,
+    });
+    return;
+  }
+
+  const job = createAutoCropJob({
+    videos: validation.videos,
+    outputRootDir: validation.outputRootDir,
+  });
+
+  setImmediate(() => {
+    runAutoCropJob(job.id);
+  });
+
+  res.status(202).json({
+    jobId: job.id,
+    status: "started",
+    outputRootDir: job.outputRootDir,
+  });
+});
+
+app.get("/api/adjustments/auto-crop/:jobId", (req, res) => {
+  const job = autoCropJobs.get(req.params.jobId);
+
+  if (!job) {
+    res.status(404).json({
+      status: "not_found",
+      message: "Auto-crop job not found.",
+    });
+    return;
+  }
+
+  res.json(serializeAutoCropJob(job));
+});
+
+app.get("/api/adjustments/auto-crop/:jobId/events", (req, res) => {
+  const job = autoCropJobs.get(req.params.jobId);
+
+  if (!job) {
+    res.status(404).json({
+      status: "not_found",
+      message: "Auto-crop job not found.",
+    });
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+
+  const listener = (eventName, data) => {
+    sendSse(res, eventName, data);
+
+    if (eventName === "complete" || eventName === "error") {
+      job.listeners.delete(listener);
+      res.end();
+    }
+  };
+
+  job.listeners.add(listener);
+  sendSse(res, "progress", serializeAutoCropJob(job));
+
+  if (job.status === "complete") {
+    listener("complete", serializeAutoCropJob(job));
+    return;
+  }
+
+  if (job.status === "error") {
+    listener("error", serializeAutoCropJob(job));
+    return;
+  }
+
+  req.on("close", () => {
+    job.listeners.delete(listener);
+  });
+});
+
+app.get("/api/adjustments/auto-crop/:jobId/result", (req, res) => {
+  const job = autoCropJobs.get(req.params.jobId);
+
+  if (!job) {
+    res.status(404).json({
+      status: "not_found",
+      message: "Auto-crop job not found.",
+    });
+    return;
+  }
+
+  if (job.status !== "complete") {
+    res.json({
+      jobId: job.id,
+      status: job.status,
+      message: "Auto-crop is not complete yet.",
+    });
+    return;
+  }
+
+  res.json({
+    jobId: job.id,
+    status: job.status,
+    summary: job.result.summary,
+    outputDir: job.result.outputDir,
+    manifestPath: job.result.manifestPath,
+    items: job.result.items,
+  });
+});
+
+app.post("/api/migrations/scan", async (req, res) => {
+  try {
+    const result = await scanMigration(req.body);
+
+    if (!result.ok) {
+      res.status(400).json({
+        status: "invalid_request",
+        message: result.error,
+      });
+      return;
+    }
+
+    migrationPlans.set(result.plan.migrationId, result.plan);
+    res.json(result.plan);
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unable to create migration scan.",
+    });
+  }
+});
+
+app.post("/api/migrations/execute", (req, res) => {
+  const migrationId = req.body?.migrationId;
+
+  if (typeof migrationId !== "string" || migrationId.trim() === "") {
+    res.status(400).json({
+      status: "invalid_request",
+      message: "migrationId is required.",
+    });
+    return;
+  }
+
+  const plan = migrationPlans.get(migrationId);
+
+  if (!plan) {
+    res.status(404).json({
+      status: "not_found",
+      message: "Migration plan not found. Run /api/migrations/scan first.",
+    });
+    return;
+  }
+
+  if (migrationJobs.has(migrationId)) {
+    res.status(409).json({
+      migrationId,
+      status: "already_started",
+      message: "Migration has already been started.",
+    });
+    return;
+  }
+
+  const job = createMigrationJob(plan);
+
+  setImmediate(() => {
+    runMigrationJob(job.id);
+  });
+
+  res.status(202).json({
+    migrationId: job.id,
+    status: "started",
+  });
+});
+
+app.get("/api/migrations/:migrationId/events", (req, res) => {
+  const job = migrationJobs.get(req.params.migrationId);
+
+  if (!job) {
+    res.status(404).json({
+      status: "not_found",
+      message: "Migration job not found.",
+    });
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+
+  const listener = (eventName, data) => {
+    sendSse(res, eventName, data);
+
+    if (eventName === "complete" || eventName === "error") {
+      job.listeners.delete(listener);
+      res.end();
+    }
+  };
+
+  job.listeners.add(listener);
+  sendSse(res, "progress", serializeMigrationJob(job));
+
+  if (job.status === "complete") {
+    listener("complete", serializeMigrationJob(job));
+    return;
+  }
+
+  if (job.status === "error") {
+    listener("error", serializeMigrationJob(job));
+    return;
+  }
+
+  req.on("close", () => {
+    job.listeners.delete(listener);
+  });
+});
+
+app.get("/api/migrations/:migrationId/result", (req, res) => {
+  const job = migrationJobs.get(req.params.migrationId);
+
+  if (!job) {
+    res.status(404).json({
+      status: "not_found",
+      message: "Migration job not found.",
+    });
+    return;
+  }
+
+  if (job.status !== "complete") {
+    res.json({
+      migrationId: job.id,
+      status: job.status,
+      message: "Migration is not complete yet.",
+    });
+    return;
+  }
+
+  res.json({
+    migrationId: job.id,
+    status: job.status,
+    summary: job.result.summary,
+    manifestPath: job.result.manifestPath,
+    operationLogPath: job.result.operationLogPath,
+    items: job.result.items,
+  });
+});
+
 app.post("/api/audits", async (req, res) => {
   const validationError = validateAuditRequest(req.body);
 
@@ -413,7 +892,11 @@ app.post("/api/audits", async (req, res) => {
     return;
   }
 
-  const { rootPath, sampleFile } = req.body;
+  const {
+    rootPath,
+    sampleFile,
+    includeBlackBorderAnalysis = false,
+  } = req.body;
   const matches = await resolveSelectedFolder({ rootPath, sampleFile });
 
   if (matches.length === 0) {
@@ -435,6 +918,7 @@ app.post("/api/audits", async (req, res) => {
 
   const job = createJob({
     resolvedDirectory: matches[0].resolvedDirectory,
+    includeBlackBorderAnalysis,
   });
 
   setImmediate(() => {

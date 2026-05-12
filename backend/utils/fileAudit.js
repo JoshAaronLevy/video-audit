@@ -4,6 +4,10 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const cliProgress = require("cli-progress");
+const {
+  analyzeBlackBorders,
+  isHighConfidenceNestedBorderCandidate,
+} = require("./blackBorderAnalysis");
 
 const VIDEO_EXTENSIONS = new Set([".mp4", ".m4v", ".mov"]);
 const DEFAULT_TARGET_ASPECT_RATIO = 16 / 9;
@@ -391,6 +395,7 @@ function buildFlaggedVideoRecord({
   minHeight,
   targetAspectRatio,
   aspectRatioTolerance,
+  blackBorder,
 }) {
   const width = safeNumber(stream.width);
   const height = safeNumber(stream.height);
@@ -415,7 +420,9 @@ function buildFlaggedVideoRecord({
     aspectRatioTolerance
   );
 
-  return {
+  const nestedBlackBordersDetected =
+    isHighConfidenceNestedBorderCandidate(blackBorder);
+  const record = {
     path: filePath,
     directory: fileInfo.directory,
     fileName,
@@ -481,10 +488,19 @@ function buildFlaggedVideoRecord({
     reasons: [
       isLowResolution ? `height below ${minHeight}` : null,
       isWrongAspectRatio ? "not 16:9 aspect ratio" : null,
+      nestedBlackBordersDetected ? "nested black borders detected" : null,
     ]
       .filter(Boolean)
       .join("; "),
   };
+
+  if (blackBorder) {
+    record.adjustments = {
+      blackBorder,
+    };
+  }
+
+  return record;
 }
 
 async function auditVideos({
@@ -492,6 +508,7 @@ async function auditVideos({
   minHeight = DEFAULT_MIN_HEIGHT,
   targetAspectRatio = DEFAULT_TARGET_ASPECT_RATIO,
   aspectRatioTolerance = DEFAULT_ASPECT_RATIO_TOLERANCE,
+  includeBlackBorderAnalysis = false,
   onProgress,
 }) {
   if (!directoryPath) {
@@ -588,6 +605,20 @@ async function auditVideos({
       continue;
     }
 
+    const streamDurationSeconds = safeNumber(result.stream.duration);
+    const formatDurationSeconds = safeNumber(result.format.duration);
+    const durationSeconds = streamDurationSeconds ?? formatDurationSeconds;
+    const width = safeNumber(result.stream.width);
+    const height = safeNumber(result.stream.height);
+    const blackBorder = includeBlackBorderAnalysis
+      ? await analyzeBlackBorders({
+          filePath,
+          width,
+          height,
+          durationSeconds,
+        })
+      : null;
+
     const record = buildFlaggedVideoRecord({
       filePath,
       fileName,
@@ -597,10 +628,15 @@ async function auditVideos({
       minHeight,
       targetAspectRatio,
       aspectRatioTolerance,
+      blackBorder,
       status: "Pending",
     });
 
-    if (record.isLowResolution || record.isWrongAspectRatio) {
+    if (
+      record.isLowResolution ||
+      record.isWrongAspectRatio ||
+      isHighConfidenceNestedBorderCandidate(blackBorder)
+    ) {
       flagged.push(record);
     }
 

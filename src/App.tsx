@@ -4,6 +4,10 @@ import { Button } from 'primereact/button'
 import 'primereact/resources/themes/lara-light-cyan/theme.css'
 import 'primereact/resources/primereact.min.css'
 import 'primeflex/primeflex.css'
+import { AutoCropDialog } from './components/AutoCropDialog'
+import { DirectoryInput } from './components/DirectoryInput'
+import { MigrationResultDialog } from './components/MigrationResultDialog'
+import { MigrationScanDialog } from './components/MigrationScanDialog'
 import { PremiereExportDialog } from './components/PremiereExportDialog'
 import { PremiereStatusBanner } from './components/PremiereStatusBanner'
 import { UploadPanel } from './components/UploadPanel'
@@ -13,10 +17,17 @@ import './App.css'
 
 function App() {
   const {
+    auditedRootDirectory,
+    autoCropError,
+    autoCropPercent,
+    autoCropProgress,
+    autoCropResult,
     auditPercent,
     auditProgress,
+    canAutoCropSelected,
     canExportToPremiere,
     canRefresh,
+    canStartMigration,
     checkPremiereStatus,
     error,
     fileName,
@@ -24,24 +35,50 @@ function App() {
     folderPathTestSummary,
     globalFilter,
     handleClearData,
+    handleCloseMigrationDialog,
+    handleCloseMigrationResult,
+    handleCloseAutoCropDialog,
     handleClosePremiereExportDialog,
+    handleExecuteMigration,
     handleFolderPathSelect,
+    handleMigrationNewEditedDirChange,
+    handleNewEditedFolderSelect,
+    handleOpenAutoCropDialog,
     handleOpenFolderPathTest,
+    handleOpenMigrationDialog,
     handleOpenPremiereExportDialog,
     handleRefreshData,
+    handleSelectNewEditedFolderClick,
+    handleStartMigrationScan,
+    handleSubmitAutoCrop,
     handleSubmitPremiereExport,
+    includeBlackBorderAnalysis,
     isAuditActive,
     isAuditVisible,
+    isAutoCropDialogVisible,
+    isAutoCropSubmitting,
+    isMigrationExecuting,
+    isMigrationScanDialogVisible,
+    isMigrationScanning,
     isPremiereExportDialogVisible,
     isPremiereExportSubmitting,
     isPremiereStatusLoading,
     isPersisted,
     isTableLoading,
+    migrationNewEditedDir,
+    migrationPercent,
+    migrationProgress,
+    migrationResult,
+    migrationResultError,
+    migrationScan,
+    migrationScanError,
+    newEditedFolderInputRef,
     premiereExportError,
     premierePresets,
     premiereStatus,
     selectedPremierePresetId,
     selectedVideos,
+    setIncludeBlackBorderAnalysis,
     setSelectedPremierePresetId,
     setSelectedVideos,
     setGlobalFilter,
@@ -69,10 +106,12 @@ function App() {
         error={hasTableSurface ? null : error}
         folderPathInputRef={folderPathInputRef}
         folderPathTestSummary={folderPathTestSummary}
+        includeBlackBorderAnalysis={includeBlackBorderAnalysis}
         isAuditActive={isAuditActive}
         isAuditVisible={isAuditVisible}
         onFolderAuditClick={handleOpenFolderPathTest}
         onFolderPathSelect={handleFolderPathSelect}
+        onIncludeBlackBorderAnalysisChange={setIncludeBlackBorderAnalysis}
         videoRows={videoRows}
       />
 
@@ -107,7 +146,9 @@ function App() {
       ) : (
         hasTableSurface && (
           <VideoTable
+            canAutoCropSelected={canAutoCropSelected}
             canExportToPremiere={canExportToPremiere}
+            canStartMigration={canStartMigration}
             canRefresh={canRefresh}
             fileName={fileName}
             globalFilter={globalFilter}
@@ -115,7 +156,9 @@ function App() {
             isLoading={isTableLoading}
             isPersisted={isPersisted}
             onClearData={handleClearData}
+            onAutoCropSelectedClick={handleOpenAutoCropDialog}
             onExportToPremiereClick={handleOpenPremiereExportDialog}
+            onMigrateNewEditsClick={handleOpenMigrationDialog}
             onGlobalFilterChange={setGlobalFilter}
             onRefreshData={handleRefreshData}
             onSelectedVideosChange={setSelectedVideos}
@@ -124,6 +167,27 @@ function App() {
           />
         )
       )}
+
+      <DirectoryInput
+        ref={newEditedFolderInputRef}
+        type="file"
+        multiple
+        webkitdirectory=""
+        onChange={handleNewEditedFolderSelect}
+        style={{ display: 'none' }}
+      />
+
+      <AutoCropDialog
+        autoCropPercent={autoCropPercent}
+        error={autoCropError}
+        isSubmitting={isAutoCropSubmitting}
+        onHide={handleCloseAutoCropDialog}
+        onSubmit={handleSubmitAutoCrop}
+        progress={autoCropProgress}
+        result={autoCropResult}
+        selectedVideos={selectedVideos}
+        visible={isAutoCropDialogVisible}
+      />
 
       <PremiereExportDialog
         error={premiereExportError}
@@ -135,6 +199,32 @@ function App() {
         selectedCount={selectedVideos.length}
         selectedPresetId={selectedPremierePresetId}
         visible={isPremiereExportDialogVisible}
+      />
+
+      <MigrationScanDialog
+        auditedRootDirectory={auditedRootDirectory}
+        error={migrationScanError}
+        isExecuting={isMigrationExecuting}
+        isScanning={isMigrationScanning}
+        migrationPercent={migrationPercent}
+        newEditedDir={migrationNewEditedDir}
+        onExecute={handleExecuteMigration}
+        onHide={handleCloseMigrationDialog}
+        onNewEditedDirChange={handleMigrationNewEditedDirChange}
+        onSelectFolderClick={handleSelectNewEditedFolderClick}
+        onStartScan={handleStartMigrationScan}
+        progress={migrationProgress}
+        resultError={migrationResultError}
+        scan={migrationScan}
+        visible={isMigrationScanDialogVisible}
+      />
+
+      <MigrationResultDialog
+        error={migrationResultError}
+        onHide={handleCloseMigrationResult}
+        result={migrationResult}
+        scan={migrationScan}
+        visible={Boolean(migrationResult)}
       />
     </main>
   )

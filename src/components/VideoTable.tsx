@@ -7,17 +7,24 @@ import { FilterMatchMode } from 'primereact/api'
 import { InputText } from 'primereact/inputtext'
 import { MultiSelect } from 'primereact/multiselect'
 import { Skeleton } from 'primereact/skeleton'
-import type { VideoRow, VideoStatus } from '../types/video'
+import { Tag } from 'primereact/tag'
+import type { VideoAdjustments, VideoRow, VideoStatus } from '../types/video'
 import {
   formatDate,
   formatDuration,
   formatNumber,
+  getAutoCropSkipReason,
+  getBlackBorderLabel,
+  getBlackBorderSeverity,
   getRowDisplayFile,
   globalFilterFields,
+  isAutoCropCandidate,
 } from '../helpers/utils'
 
 type VideoTableProps = {
   canExportToPremiere: boolean
+  canAutoCropSelected: boolean
+  canStartMigration: boolean
   canRefresh: boolean
   fileName: string | null
   globalFilter: string
@@ -25,7 +32,9 @@ type VideoTableProps = {
   isLoading: boolean
   isPersisted: boolean
   onClearData: () => void
+  onAutoCropSelectedClick: () => void
   onExportToPremiereClick: () => void
+  onMigrateNewEditsClick: () => void
   onGlobalFilterChange: (value: string) => void
   onRefreshData: () => void
   onSelectedVideosChange: (videos: VideoRow[]) => void
@@ -54,6 +63,13 @@ type FileSizeFilterValue =
   | 'large'
   | 'very-large'
 
+type BorderFilterValue =
+  | 'auto-crop'
+  | 'nested_borders'
+  | 'manual_review'
+  | 'clean'
+  | 'not_scanned'
+
 type DirectoryFilterValue = string
 
 type SelectOption<TValue> = {
@@ -65,6 +81,7 @@ const rootDirectoryFilterValue = '__root_videos__'
 
 type ActiveVideoFilters = {
   aspectRatio: boolean | null
+  borders: BorderFilterValue[]
   directory: DirectoryFilterValue[]
   duration: DurationFilterValue[]
   fileSize: FileSizeFilterValue[]
@@ -113,6 +130,14 @@ const statusFilterOptions: SelectOption<VideoStatus>[] = [
   { label: 'Queued', value: 'Queued' },
   { label: 'Completed', value: 'Completed' },
   { label: 'Dismissed', value: 'Dismissed' },
+]
+
+const borderFilterOptions: SelectOption<BorderFilterValue>[] = [
+  { label: 'Auto-crop candidates', value: 'auto-crop' },
+  { label: 'Nested borders', value: 'nested_borders' },
+  { label: 'Manual review', value: 'manual_review' },
+  { label: 'Clean', value: 'clean' },
+  { label: 'Not scanned', value: 'not_scanned' },
 ]
 
 const formatRoundedMegabytes = (value: number | null) =>
@@ -271,6 +296,56 @@ const directoryFilterFunction = (
   })
 }
 
+const isAutoCropCandidateAdjustment = (adjustments?: VideoAdjustments) => {
+  const blackBorder = adjustments?.blackBorder
+
+  return (
+    blackBorder?.classification === 'nested_borders' &&
+    blackBorder.confidence === 'high' &&
+    blackBorder.recommendedFix?.eligible === true
+  )
+}
+
+const matchesBorderFilterValue = (
+  adjustments: VideoAdjustments | undefined,
+  filterValue: BorderFilterValue,
+) => {
+  const blackBorder = adjustments?.blackBorder
+
+  switch (filterValue) {
+    case 'auto-crop':
+      return isAutoCropCandidateAdjustment(adjustments)
+    case 'nested_borders':
+      return blackBorder?.classification === 'nested_borders'
+    case 'manual_review':
+      return (
+        Boolean(blackBorder?.analyzed) &&
+        blackBorder?.classification !== 'clean' &&
+        !isAutoCropCandidateAdjustment(adjustments)
+      )
+    case 'clean':
+      return blackBorder?.classification === 'clean'
+    case 'not_scanned':
+      return !blackBorder?.analyzed
+  }
+}
+
+const borderFilterFunction = (
+  value: VideoAdjustments | undefined,
+  filter: BorderFilterValue[] | null,
+) => {
+  if (!filter || filter.length === 0) {
+    return true
+  }
+
+  return filter.some((filterValue) => matchesBorderFilterValue(value, filterValue))
+}
+
+const matchesBorderFilter = (
+  row: VideoRow,
+  filter: BorderFilterValue[] | null,
+) => borderFilterFunction(row.adjustments, filter)
+
 const matchesVideoFilters = (
   row: VideoRow,
   filters: ActiveVideoFilters,
@@ -290,6 +365,8 @@ const matchesVideoFilters = (
   (excludedDimension === 'aspectRatio' ||
     filters.aspectRatio === null ||
     row.isWrongAspectRatio === filters.aspectRatio) &&
+  (excludedDimension === 'borders' ||
+    matchesBorderFilter(row, filters.borders)) &&
   (excludedDimension === 'status' ||
     filters.status === null ||
     row.status === filters.status)
@@ -384,6 +461,21 @@ const buildStatusFilterOptions = (
         (row) =>
           matchesVideoFilters(row, filters, 'status') &&
           row.status === option.value,
+      ).length,
+    ),
+  )
+
+const buildBorderFilterOptions = (
+  rows: VideoRow[],
+  filters: ActiveVideoFilters,
+) =>
+  borderFilterOptions.map((option) =>
+    withCountLabel(
+      option,
+      rows.filter(
+        (row) =>
+          matchesVideoFilters(row, filters, 'borders') &&
+          matchesBorderFilter(row, [option.value]),
       ).length,
     ),
   )
@@ -505,6 +597,26 @@ const statusFilterTemplate = (
   />
 )
 
+const borderFilterTemplate = (
+  options: FilterTemplateOptions<BorderFilterValue[] | null>,
+  borderFilterOptions: SelectOption<BorderFilterValue>[],
+  onFilterChange: (value: BorderFilterValue[]) => void,
+) => (
+  <MultiSelect
+    value={options.value ?? []}
+    options={borderFilterOptions}
+    onChange={(event) => {
+      const nextValue = event.value ?? []
+      onFilterChange(nextValue)
+      options.filterApplyCallback(nextValue)
+    }}
+    placeholder="Borders"
+    className="table-column-filter"
+    display="chip"
+    maxSelectedLabels={1}
+  />
+)
+
 const fileTemplate = (row: VideoRow) => {
   const displayFile = getRowDisplayFile(row)
 
@@ -547,6 +659,66 @@ const aspectRatioTemplate = (row: VideoRow) => (
   </div>
 )
 
+const getBorderTagSeverity = (row: VideoRow) => {
+  const severity = getBlackBorderSeverity(row)
+
+  return severity === 'warn' ? 'warning' : severity
+}
+
+const bordersTemplate = (row: VideoRow) => (
+  <div className="cell-stack border-cell">
+    <Tag
+      value={getBlackBorderLabel(row)}
+      severity={getBorderTagSeverity(row)}
+      className={isAutoCropCandidate(row) ? 'crop-candidate-tag' : undefined}
+    />
+    {row.adjustments?.blackBorder?.confidence && (
+      <span className="cell-muted">
+        {row.adjustments.blackBorder.confidence} confidence
+      </span>
+    )}
+  </div>
+)
+
+const cropTemplate = (row: VideoRow) => {
+  const blackBorder = row.adjustments?.blackBorder
+  const visibleArea = blackBorder?.visibleArea
+  const recommendedFix = blackBorder?.recommendedFix
+
+  if (!blackBorder?.analyzed) {
+    return <span className="cell-muted">-</span>
+  }
+
+  if (isAutoCropCandidate(row) && visibleArea && recommendedFix) {
+    return (
+      <div className="cell-stack crop-cell">
+        <span>
+          {Math.round(visibleArea.width)}x{Math.round(visibleArea.height)} -&gt;{' '}
+          {recommendedFix.targetWidth ?? 1920}x
+          {recommendedFix.targetHeight ?? 1080}
+        </span>
+        {blackBorder.borderPercent?.blackFrameEstimate !== undefined && (
+          <span className="cell-muted">
+            {formatNumber(blackBorder.borderPercent.blackFrameEstimate, 1)}%
+            black
+          </span>
+        )}
+      </div>
+    )
+  }
+
+  if (blackBorder.classification !== 'clean') {
+    return (
+      <div className="cell-stack crop-cell">
+        <span>Manual review</span>
+        <span className="cell-muted">{getAutoCropSkipReason(row)}</span>
+      </div>
+    )
+  }
+
+  return <span className="cell-muted">-</span>
+}
+
 const createdDateTemplate = (row: VideoRow) => (
   <div className="cell-stack">
     <span>{formatDate(row.createdAt)}</span>
@@ -564,7 +736,9 @@ const skeletonTemplate = () => (
 )
 
 export function VideoTable({
+  canAutoCropSelected,
   canExportToPremiere,
+  canStartMigration,
   canRefresh,
   fileName,
   globalFilter,
@@ -572,7 +746,9 @@ export function VideoTable({
   isLoading,
   // isPersisted,
   onClearData,
+  onAutoCropSelectedClick,
   onExportToPremiereClick,
+  onMigrateNewEditsClick,
   onGlobalFilterChange,
   onRefreshData,
   onSelectedVideosChange,
@@ -594,11 +770,15 @@ export function VideoTable({
   const [aspectRatioFilterValue, setAspectRatioFilterValue] = useState<
     boolean | null
   >(null)
+  const [borderFilterValue, setBorderFilterValue] = useState<BorderFilterValue[]>(
+    [],
+  )
   const [statusFilterValue, setStatusFilterValue] =
     useState<VideoStatus | null>(null)
   const activeFilters = useMemo<ActiveVideoFilters>(
     () => ({
       aspectRatio: aspectRatioFilterValue,
+      borders: borderFilterValue,
       directory: directoryFilterValue,
       duration: durationFilterValue,
       fileSize: fileSizeFilterValue,
@@ -608,6 +788,7 @@ export function VideoTable({
     }),
     [
       aspectRatioFilterValue,
+      borderFilterValue,
       directoryFilterValue,
       durationFilterValue,
       fileSizeFilterValue,
@@ -644,6 +825,10 @@ export function VideoTable({
     () => buildStatusFilterOptions(videoRows, activeFilters),
     [activeFilters, videoRows],
   )
+  const countedBorderFilterOptions = useMemo(
+    () => buildBorderFilterOptions(videoRows, activeFilters),
+    [activeFilters, videoRows],
+  )
   const selectedVideosSizeMB = useMemo(
     () =>
       selectedVideos.reduce(
@@ -660,6 +845,11 @@ export function VideoTable({
     selectedVideos.length > 0
       ? `Export to Premiere (${selectedVideos.length.toLocaleString()})`
       : 'Export to Premiere'
+  const selectedAutoCropCount = selectedVideos.filter(isAutoCropCandidate).length
+  const autoCropButtonLabel =
+    selectedVideos.length > 0
+      ? `Auto-Crop Selected (${selectedAutoCropCount.toLocaleString()})`
+      : 'Auto-Crop Selected'
 
   const tableHeader = (
     <div className="table-header">
@@ -684,6 +874,21 @@ export function VideoTable({
           label={exportButtonLabel}
           disabled={!canExportToPremiere}
           onClick={onExportToPremiereClick}
+        />
+        <Button
+          type="button"
+          label={autoCropButtonLabel}
+          severity="secondary"
+          disabled={!canAutoCropSelected}
+          onClick={onAutoCropSelectedClick}
+        />
+        <Button
+          type="button"
+          label="Migrate New Edits"
+          severity="secondary"
+          outlined
+          disabled={!canStartMigration}
+          onClick={onMigrateNewEditsClick}
         />
         <InputText
           value={globalFilter}
@@ -852,6 +1057,30 @@ export function VideoTable({
           showFilterMenu={false}
           body={isLoading ? skeletonTemplate : aspectRatioTemplate}
           style={{ width: '11%' }}
+        />
+        <Column
+          field="adjustments"
+          filterField="adjustments"
+          header="Borders"
+          filter={!isLoading}
+          filterMatchMode={FilterMatchMode.CUSTOM}
+          filterFunction={borderFilterFunction}
+          filterElement={(options) =>
+            borderFilterTemplate(
+              options as FilterTemplateOptions<BorderFilterValue[] | null>,
+              countedBorderFilterOptions,
+              setBorderFilterValue,
+            )
+          }
+          showFilterMenu={false}
+          body={isLoading ? skeletonTemplate : bordersTemplate}
+          style={{ width: '12%' }}
+        />
+        <Column
+          field="adjustments"
+          header="Crop"
+          body={isLoading ? skeletonTemplate : cropTemplate}
+          style={{ width: '14%' }}
         />
         <Column
           field="status"

@@ -1,15 +1,23 @@
 import type {
   AuditProgress,
   AuditProgressPayload,
+  AutoCropProgress,
+  AutoCropProgressPayload,
+  BlackBorderAdjustment,
   FolderPathManifestItem,
   StoredVideoData,
+  VideoAdjustments,
   VideoRow,
   VideoSource,
   VideoStatus,
 } from '../types/video'
+import type {
+  MigrationProgress,
+  MigrationProgressPayload,
+} from '../types/migration'
 
 const storageKey = 'video-audit:videos:v1'
-const videoExtensions = new Set(['.mp4', '.m4v', '.mov'])
+const videoExtensions = new Set(['.mp4', '.mov', '.m4v', '.mkv', '.avi', '.webm'])
 const videoStatuses = new Set<VideoStatus>([
   'Pending',
   'Queued',
@@ -30,6 +38,35 @@ export const initialAuditProgress: AuditProgress = {
   errorCount: 0,
   currentFile: null,
   message: null,
+}
+
+export const initialAutoCropProgress: AutoCropProgress = {
+  jobId: null,
+  status: 'idle',
+  phase: null,
+  outputRootDir: null,
+  outputDir: null,
+  totalFiles: null,
+  processedFiles: 0,
+  succeededCount: 0,
+  skippedCount: 0,
+  errorCount: 0,
+  currentFile: null,
+  message: null,
+}
+
+export const initialMigrationProgress: MigrationProgress = {
+  migrationId: null,
+  status: 'idle',
+  phase: null,
+  totalFiles: null,
+  processedFiles: 0,
+  copiedCount: 0,
+  archivedCount: 0,
+  failedCount: 0,
+  currentFile: null,
+  message: null,
+  error: null,
 }
 
 export const globalFilterFields: Array<keyof VideoRow> = ['fileName']
@@ -73,6 +110,16 @@ const readVideoStatus = (source: VideoSource): VideoStatus => {
   return typeof value === 'string' && videoStatuses.has(value as VideoStatus)
     ? (value as VideoStatus)
     : 'Pending'
+}
+
+const readAdjustments = (source: VideoSource): VideoAdjustments | undefined => {
+  const value = source.adjustments
+
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined
+  }
+
+  return value as VideoAdjustments
 }
 
 const getPathAfterEdited = (path: string) => {
@@ -145,12 +192,148 @@ export const toVideoRow = (source: VideoSource): VideoRow => ({
   isWrongAspectRatio: readBoolean(source, 'isWrongAspectRatio'),
   reasons: readString(source, 'reasons'),
   status: readVideoStatus(source),
+  adjustments: readAdjustments(source),
 })
+
+const getBlackBorder = (row: VideoRow): BlackBorderAdjustment | undefined =>
+  row.adjustments?.blackBorder
+
+export const isAutoCropCandidate = (row: VideoRow): boolean => {
+  const blackBorder = getBlackBorder(row)
+
+  return (
+    blackBorder?.classification === 'nested_borders' &&
+    blackBorder.confidence === 'high' &&
+    blackBorder.recommendedFix?.eligible === true
+  )
+}
+
+export const getBlackBorderLabel = (row: VideoRow): string => {
+  const blackBorder = getBlackBorder(row)
+
+  if (!blackBorder?.analyzed) {
+    return 'Not scanned'
+  }
+
+  switch (blackBorder.classification) {
+    case 'clean':
+      return 'Clean'
+    case 'pillarboxed':
+      return 'Pillarbox'
+    case 'letterboxed':
+      return 'Letterbox'
+    case 'nested_borders':
+      return blackBorder.confidence === 'high' ? 'Nested' : 'Nested review'
+    case 'asymmetric_border':
+      return 'Manual review'
+    case 'uncertain':
+      return 'Uncertain'
+    case 'analysis_error':
+      return 'Error'
+  }
+}
+
+export const getBlackBorderSeverity = (
+  row: VideoRow,
+): 'success' | 'info' | 'warn' | 'danger' | 'secondary' => {
+  const blackBorder = getBlackBorder(row)
+
+  if (!blackBorder?.analyzed) {
+    return 'secondary'
+  }
+
+  if (isAutoCropCandidate(row)) {
+    return 'danger'
+  }
+
+  switch (blackBorder.classification) {
+    case 'clean':
+      return 'success'
+    case 'pillarboxed':
+    case 'letterboxed':
+      return 'info'
+    case 'nested_borders':
+    case 'asymmetric_border':
+    case 'uncertain':
+      return 'warn'
+    case 'analysis_error':
+      return 'danger'
+  }
+}
+
+export const getAutoCropSkipReason = (row: VideoRow): string | null => {
+  if (isAutoCropCandidate(row)) {
+    return null
+  }
+
+  const blackBorder = getBlackBorder(row)
+
+  if (!blackBorder?.analyzed) {
+    return 'not analyzed'
+  }
+
+  if (blackBorder.classification === 'analysis_error') {
+    return 'analysis error'
+  }
+
+  if (blackBorder.classification !== 'nested_borders') {
+    return 'not nested borders'
+  }
+
+  if (blackBorder.confidence !== 'high') {
+    return 'low/medium confidence'
+  }
+
+  return 'not eligible'
+}
 
 export const formatNumber = (value: number | null, maximumFractionDigits = 2) =>
   value === null
     ? ''
     : value.toLocaleString(undefined, { maximumFractionDigits })
+
+export const formatBytes = (value: number | null | undefined) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '0 B'
+  }
+
+  const absoluteValue = Math.abs(value)
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let unitIndex = 0
+  let displayValue = absoluteValue
+
+  while (displayValue >= 1024 && unitIndex < units.length - 1) {
+    displayValue /= 1024
+    unitIndex += 1
+  }
+
+  const maximumFractionDigits = unitIndex === 0 ? 0 : displayValue >= 10 ? 1 : 2
+  const formatted = displayValue.toLocaleString(undefined, {
+    maximumFractionDigits,
+  })
+
+  return `${formatted} ${units[unitIndex]}`
+}
+
+export const formatSignedBytes = (value: number | null | undefined) => {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value === 0) {
+    return formatBytes(0)
+  }
+
+  return `${value > 0 ? '+' : '-'}${formatBytes(Math.abs(value))}`
+}
+
+export const formatSignedInteger = (value: number | null | undefined) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return '0'
+  }
+
+  if (value === 0) {
+    return '0'
+  }
+
+  return `${value > 0 ? '+' : ''}${value.toLocaleString()}`
+}
 
 export const formatProgressNumber = (value: number | null | undefined) =>
   typeof value === 'number' && Number.isFinite(value)
@@ -321,9 +504,92 @@ export const mergeAuditProgress = (
   message: payload.message ?? currentProgress.message,
 })
 
+export const mergeAutoCropProgress = (
+  currentProgress: AutoCropProgress,
+  payload: AutoCropProgressPayload,
+  status: AutoCropProgress['status'] = 'running',
+): AutoCropProgress => ({
+  ...currentProgress,
+  jobId: payload.jobId ?? currentProgress.jobId,
+  status,
+  phase: payload.phase ?? currentProgress.phase,
+  outputRootDir: payload.outputRootDir ?? currentProgress.outputRootDir,
+  outputDir: payload.outputDir ?? currentProgress.outputDir,
+  totalFiles:
+    typeof payload.totalFiles === 'number'
+      ? payload.totalFiles
+      : currentProgress.totalFiles,
+  processedFiles:
+    typeof payload.processedFiles === 'number'
+      ? payload.processedFiles
+      : currentProgress.processedFiles,
+  succeededCount:
+    typeof payload.succeededCount === 'number'
+      ? payload.succeededCount
+      : currentProgress.succeededCount,
+  skippedCount:
+    typeof payload.skippedCount === 'number'
+      ? payload.skippedCount
+      : currentProgress.skippedCount,
+  errorCount:
+    typeof payload.errorCount === 'number'
+      ? payload.errorCount
+      : currentProgress.errorCount,
+  currentFile: payload.currentFile ?? currentProgress.currentFile,
+  message: payload.message ?? currentProgress.message,
+})
+
+export const mergeMigrationProgress = (
+  currentProgress: MigrationProgress,
+  payload: Partial<MigrationProgressPayload>,
+  status: MigrationProgress['status'] = 'running',
+): MigrationProgress => ({
+  ...currentProgress,
+  migrationId: payload.migrationId ?? currentProgress.migrationId,
+  status,
+  phase: payload.phase ?? currentProgress.phase,
+  totalFiles:
+    typeof payload.totalFiles === 'number'
+      ? payload.totalFiles
+      : currentProgress.totalFiles,
+  processedFiles:
+    typeof payload.processedFiles === 'number'
+      ? payload.processedFiles
+      : currentProgress.processedFiles,
+  copiedCount:
+    typeof payload.copiedCount === 'number'
+      ? payload.copiedCount
+      : currentProgress.copiedCount,
+  archivedCount:
+    typeof payload.archivedCount === 'number'
+      ? payload.archivedCount
+      : currentProgress.archivedCount,
+  failedCount:
+    typeof payload.failedCount === 'number'
+      ? payload.failedCount
+      : currentProgress.failedCount,
+  currentFile: payload.currentFile ?? currentProgress.currentFile,
+  message: payload.message ?? currentProgress.message,
+  error: payload.error ?? currentProgress.error,
+})
+
 export const getAuditPercent = (auditProgress: AuditProgress) =>
   auditProgress.totalFiles && auditProgress.totalFiles > 0
     ? Math.round(
         (auditProgress.processedFiles / auditProgress.totalFiles) * 100,
+      )
+    : null
+
+export const getAutoCropPercent = (autoCropProgress: AutoCropProgress) =>
+  autoCropProgress.totalFiles && autoCropProgress.totalFiles > 0
+    ? Math.round(
+        (autoCropProgress.processedFiles / autoCropProgress.totalFiles) * 100,
+      )
+    : null
+
+export const getMigrationPercent = (migrationProgress: MigrationProgress) =>
+  migrationProgress.totalFiles && migrationProgress.totalFiles > 0
+    ? Math.round(
+        (migrationProgress.processedFiles / migrationProgress.totalFiles) * 100,
       )
     : null
