@@ -529,6 +529,10 @@
   width: 100% !important;
 }
 
+.p-datatable .p-datatable-tbody > tr {
+  font-size: 0.8rem;
+}
+
 @media (max-width: 760px) {
   .app-shell,
   .app-shell.has-data {

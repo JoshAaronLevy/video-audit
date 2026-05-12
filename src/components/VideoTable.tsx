@@ -739,10 +739,10 @@ export function VideoTable({
   canAutoCropSelected,
   canExportToPremiere,
   canStartMigration,
-  canRefresh,
+  // canRefresh,
   fileName,
   globalFilter,
-  isAuditActive,
+  // isAuditActive,
   isLoading,
   // isPersisted,
   onClearData,
@@ -750,7 +750,7 @@ export function VideoTable({
   onExportToPremiereClick,
   onMigrateNewEditsClick,
   onGlobalFilterChange,
-  onRefreshData,
+  // onRefreshData,
   onSelectedVideosChange,
   selectedVideos,
   videoRows,
@@ -897,19 +897,18 @@ export function VideoTable({
           aria-label="Search videos"
           disabled={isLoading}
         />
-        <Button
+        {/* <Button
           type="button"
           label="Refresh"
           severity="secondary"
           outlined
           disabled={isAuditActive || isLoading || !canRefresh}
           onClick={onRefreshData}
-        />
+        /> */}
         <Button
           type="button"
           label="Clear cache"
-          severity="secondary"
-          text
+          severity="danger"
           onClick={onClearData}
         />
       </div>
@@ -940,6 +939,7 @@ export function VideoTable({
         globalFilter={globalFilter}
         globalFilterFields={globalFilterFields}
         stripedRows
+        size='small'
         responsiveLayout="stack"
         emptyMessage={isLoading ? '' : 'No videos found.'}
       >
