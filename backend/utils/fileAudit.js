@@ -6,7 +6,7 @@ const { spawn } = require("node:child_process");
 const cliProgress = require("cli-progress");
 const {
   analyzeBlackBorders,
-  isHighConfidenceNestedBorderCandidate,
+  isBlackBorderReviewCandidate,
 } = require("./blackBorderAnalysis");
 
 const VIDEO_EXTENSIONS = new Set([".mp4", ".m4v", ".mov"]);
@@ -386,6 +386,16 @@ function formatTargetAspectRatio(targetAspectRatio) {
   return Number(targetAspectRatio.toFixed(6));
 }
 
+function getBlackBorderReviewReason(blackBorder) {
+  if (!isBlackBorderReviewCandidate(blackBorder)) return null;
+
+  if (blackBorder.classification === "nested_borders") {
+    return "black borders detected on both axes";
+  }
+
+  return "asymmetric black borders detected";
+}
+
 function buildFlaggedVideoRecord({
   filePath,
   fileName,
@@ -421,8 +431,7 @@ function buildFlaggedVideoRecord({
     aspectRatioTolerance
   );
 
-  const nestedBlackBordersDetected =
-    isHighConfidenceNestedBorderCandidate(blackBorder);
+  const blackBorderReviewReason = getBlackBorderReviewReason(blackBorder);
   const record = {
     path: filePath,
     directory: fileInfo.directory,
@@ -493,7 +502,7 @@ function buildFlaggedVideoRecord({
       includeLowResolutionAnalysis && isWrongAspectRatio
         ? "not 16:9 aspect ratio"
         : null,
-      nestedBlackBordersDetected ? "nested black borders detected" : null,
+      blackBorderReviewReason,
     ]
       .filter(Boolean)
       .join("; "),
@@ -508,8 +517,10 @@ function buildFlaggedVideoRecord({
   return record;
 }
 
-async function auditVideos({
-  directoryPath,
+async function auditVideoEntries({
+  entries,
+  rootDirectoryPath,
+  skippedFiles = 0,
   minHeight = DEFAULT_MIN_HEIGHT,
   targetAspectRatio = DEFAULT_TARGET_ASPECT_RATIO,
   aspectRatioTolerance = DEFAULT_ASPECT_RATIO_TOLERANCE,
@@ -517,43 +528,29 @@ async function auditVideos({
   includeBlackBorderAnalysis = false,
   onProgress,
 }) {
-  if (!directoryPath) {
-    throw new Error("directoryPath is required");
-  }
-
-  const absoluteDirectoryPath = path.resolve(directoryPath);
-  const directoryStat = await fs.stat(absoluteDirectoryPath);
-
-  if (!directoryStat.isDirectory()) {
-    throw new Error(`Not a directory: ${absoluteDirectoryPath}`);
-  }
-
-  const { files, skippedFiles } = await findVideoFiles(
-    absoluteDirectoryPath,
-    onProgress
-  );
   const flagged = [];
   const errors = [];
 
   emitProgress(onProgress, {
     phase: "analyzing",
-    totalFiles: files.length,
+    totalFiles: entries.length,
     processedFiles: 0,
     skippedFiles,
     flaggedCount: 0,
     errorCount: 0,
     currentFile: "",
     message:
-      files.length === 0 ? "No matching video files found." : "Analyzing videos...",
+      entries.length === 0 ? "No matching video files found." : "Analyzing videos...",
   });
 
-  for (let i = 0; i < files.length; i++) {
-    const filePath = files[i];
-    const fileName = path.basename(filePath);
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const filePath = entry.analysisPath;
+    const fileName = entry.fileName || path.basename(filePath);
 
     emitProgress(onProgress, {
       phase: "analyzing",
-      totalFiles: files.length,
+      totalFiles: entries.length,
       processedFiles: i,
       skippedFiles,
       flaggedCount: flagged.length,
@@ -568,14 +565,14 @@ async function auditVideos({
       fileInfo = await getFileInfo(filePath);
     } catch (error) {
       errors.push({
-        path: filePath,
+        path: entry.resultPath || filePath,
         fileName,
         error: `Failed to read file info: ${error.message}`,
       });
 
       emitProgress(onProgress, {
         phase: "analyzing",
-        totalFiles: files.length,
+        totalFiles: entries.length,
         processedFiles: i + 1,
         skippedFiles,
         flaggedCount: flagged.length,
@@ -591,7 +588,7 @@ async function auditVideos({
 
     if (!result.ok) {
       errors.push({
-        path: filePath,
+        path: entry.resultPath || filePath,
         fileName,
         ...fileInfo,
         error: result.error,
@@ -599,7 +596,7 @@ async function auditVideos({
 
       emitProgress(onProgress, {
         phase: "analyzing",
-        totalFiles: files.length,
+        totalFiles: entries.length,
         processedFiles: i + 1,
         skippedFiles,
         flaggedCount: flagged.length,
@@ -639,23 +636,32 @@ async function auditVideos({
       status: "Pending",
     });
 
+    if (entry.resultPath) {
+      record.path = entry.resultPath;
+      record.directory = path.dirname(entry.resultPath);
+    }
+
+    if (entry.displayFile) {
+      record.displayFile = entry.displayFile;
+    }
+
+    if (typeof entry.displayDirectory === "string") {
+      record.displayDirectory = entry.displayDirectory;
+    }
+
     const lowResolutionDetected =
       includeLowResolutionAnalysis &&
       (record.isLowResolution || record.isWrongAspectRatio);
-    const blackBorderDetected =
-      includeBlackBorderAnalysis &&
-      isHighConfidenceNestedBorderCandidate(blackBorder);
+    const blackBorderNeedsReview =
+      includeBlackBorderAnalysis && isBlackBorderReviewCandidate(blackBorder);
 
-    if (
-      lowResolutionDetected ||
-      blackBorderDetected
-    ) {
+    if (lowResolutionDetected || blackBorderNeedsReview) {
       flagged.push(record);
     }
 
     emitProgress(onProgress, {
       phase: "analyzing",
-      totalFiles: files.length,
+      totalFiles: entries.length,
       processedFiles: i + 1,
       skippedFiles,
       flaggedCount: flagged.length,
@@ -666,17 +672,17 @@ async function auditVideos({
   }
 
   const summary = {
-    directoryPath: absoluteDirectoryPath,
-    totalFiles: files.length,
-    scannedVideos: files.length,
+    directoryPath: rootDirectoryPath,
+    totalFiles: entries.length,
+    scannedVideos: entries.length,
     flaggedCount: flagged.length,
     errorCount: errors.length,
   };
 
   emitProgress(onProgress, {
     phase: "complete",
-    totalFiles: files.length,
-    processedFiles: files.length,
+    totalFiles: entries.length,
+    processedFiles: entries.length,
     skippedFiles,
     flaggedCount: flagged.length,
     errorCount: errors.length,
@@ -689,6 +695,117 @@ async function auditVideos({
     videos: flagged,
     errors,
   };
+}
+
+async function auditVideos({
+  directoryPath,
+  minHeight = DEFAULT_MIN_HEIGHT,
+  targetAspectRatio = DEFAULT_TARGET_ASPECT_RATIO,
+  aspectRatioTolerance = DEFAULT_ASPECT_RATIO_TOLERANCE,
+  includeLowResolutionAnalysis = true,
+  includeBlackBorderAnalysis = false,
+  onProgress,
+}) {
+  if (!directoryPath) {
+    throw new Error("directoryPath is required");
+  }
+
+  const absoluteDirectoryPath = path.resolve(directoryPath);
+  const directoryStat = await fs.stat(absoluteDirectoryPath);
+
+  if (!directoryStat.isDirectory()) {
+    throw new Error(`Not a directory: ${absoluteDirectoryPath}`);
+  }
+
+  const { files, skippedFiles } = await findVideoFiles(
+    absoluteDirectoryPath,
+    onProgress
+  );
+  const entries = files.map((filePath) => ({ analysisPath: filePath }));
+
+  return auditVideoEntries({
+    entries,
+    rootDirectoryPath: absoluteDirectoryPath,
+    skippedFiles,
+    minHeight,
+    targetAspectRatio,
+    aspectRatioTolerance,
+    includeLowResolutionAnalysis,
+    includeBlackBorderAnalysis,
+    onProgress,
+  });
+}
+
+async function auditSelectedVideoFiles({
+  files,
+  rootDirectoryPath,
+  minHeight = DEFAULT_MIN_HEIGHT,
+  targetAspectRatio = DEFAULT_TARGET_ASPECT_RATIO,
+  aspectRatioTolerance = DEFAULT_ASPECT_RATIO_TOLERANCE,
+  includeLowResolutionAnalysis = true,
+  includeBlackBorderAnalysis = false,
+  onProgress,
+}) {
+  if (!Array.isArray(files)) {
+    throw new Error("files must be an array");
+  }
+
+  const entries = [];
+  let skippedFiles = 0;
+
+  for (const file of files) {
+    const analysisPath =
+      typeof file === "string" ? file : file && file.analysisPath;
+
+    if (!analysisPath) {
+      skippedFiles += 1;
+      continue;
+    }
+
+    const absoluteAnalysisPath = path.resolve(analysisPath);
+    let stat;
+
+    try {
+      stat = await fs.stat(absoluteAnalysisPath);
+    } catch {
+      skippedFiles += 1;
+      continue;
+    }
+
+    if (!stat.isFile()) {
+      skippedFiles += 1;
+      continue;
+    }
+
+    const fileName =
+      typeof file === "object" && file.fileName
+        ? file.fileName
+        : path.basename(absoluteAnalysisPath);
+    const extension = path.extname(fileName).toLowerCase();
+
+    if (!VIDEO_EXTENSIONS.has(extension)) {
+      skippedFiles += 1;
+      continue;
+    }
+
+    entries.push({
+      ...(typeof file === "object" ? file : {}),
+      analysisPath: absoluteAnalysisPath,
+      fileName,
+    });
+  }
+
+  return auditVideoEntries({
+    entries,
+    rootDirectoryPath: rootDirectoryPath || "Selected files",
+    skippedFiles,
+    minHeight,
+    targetAspectRatio,
+    aspectRatioTolerance,
+    includeLowResolutionAnalysis,
+    includeBlackBorderAnalysis,
+    onProgress,
+  });
 }
 
 async function runCli() {
@@ -764,5 +881,6 @@ if (require.main === module) {
 }
 
 module.exports = {
+  auditSelectedVideoFiles,
   auditVideos,
 };

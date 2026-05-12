@@ -201,18 +201,30 @@ function classifyBorders({ borders, sourceWidth, sourceHeight, crop }) {
   const hasRight = borders.right >= horizontalThreshold;
   const hasTop = borders.top >= verticalThreshold;
   const hasBottom = borders.bottom >= verticalThreshold;
-  const hasHorizontalPair = hasLeft && hasRight;
-  const hasVerticalPair = hasTop && hasBottom;
+  const hasSideBorder = hasLeft || hasRight;
+  const hasVerticalBorder = hasTop || hasBottom;
+  const sideIsSymmetric = hasLeft === hasRight;
+  const verticalIsSymmetric = hasTop === hasBottom;
   const blackFrameEstimate =
     1 - (crop.width * crop.height) / (sourceWidth * sourceHeight);
 
-  if (blackFrameEstimate <= 0.01) return "clean";
-  if (hasHorizontalPair && hasVerticalPair) return "nested_borders";
-  if (hasHorizontalPair && !hasTop && !hasBottom) return "pillarboxed";
-  if (hasVerticalPair && !hasLeft && !hasRight) return "letterboxed";
-  if (hasLeft || hasRight || hasTop || hasBottom) return "asymmetric_border";
+  if (!hasSideBorder && !hasVerticalBorder) {
+    return blackFrameEstimate <= 0.01 ? "clean" : "uncertain";
+  }
 
-  return "uncertain";
+  if (hasLeft && hasRight && !hasVerticalBorder) return "pillarboxed";
+  if (hasTop && hasBottom && !hasSideBorder) return "letterboxed";
+
+  if (
+    hasSideBorder &&
+    hasVerticalBorder &&
+    sideIsSymmetric &&
+    verticalIsSymmetric
+  ) {
+    return "nested_borders";
+  }
+
+  return "asymmetric_border";
 }
 
 function createAnalysisError({ width, height, durationSeconds, message }) {
@@ -381,7 +393,17 @@ function isHighConfidenceNestedBorderCandidate(blackBorder) {
   );
 }
 
+function isBlackBorderReviewCandidate(blackBorder) {
+  return Boolean(
+    blackBorder &&
+      blackBorder.analyzed &&
+      (blackBorder.classification === "nested_borders" ||
+        blackBorder.classification === "asymmetric_border")
+  );
+}
+
 module.exports = {
   analyzeBlackBorders,
+  isBlackBorderReviewCandidate,
   isHighConfidenceNestedBorderCandidate,
 };

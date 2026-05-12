@@ -107,6 +107,12 @@ export type FolderPathTestSummary = {
   firstRelativePath: string | null
 }
 
+export type SelectedFileManifestItem = {
+  fileName: string
+  relativePath: string
+  sourcePath: string | null
+}
+
 export type AuditRequestPayload = {
   rootPath: string
   sampleFile: FolderPathManifestItem

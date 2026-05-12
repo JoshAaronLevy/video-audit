@@ -15,13 +15,16 @@ type UploadPanelProps = {
   auditProgress: AuditProgress
   error: string | null
   folderPathInputRef: RefObject<HTMLInputElement | null>
+  selectedFilesInputRef: RefObject<HTMLInputElement | null>
   folderPathTestSummary: FolderPathTestSummary | null
   includeLowResolutionAnalysis: boolean
   includeBlackBorderAnalysis: boolean
   isAuditActive: boolean
   isAuditVisible: boolean
   onFolderAuditClick: () => void
+  onFilesAuditClick: () => void
   onFolderPathSelect: (event: ChangeEvent<HTMLInputElement>) => void
+  onSelectedFilesSelect: (event: ChangeEvent<HTMLInputElement>) => void
   onIncludeLowResolutionAnalysisChange: (value: boolean) => void
   onIncludeBlackBorderAnalysisChange: (value: boolean) => void
   videoRows: VideoRow[] | null
@@ -32,13 +35,16 @@ export function UploadPanel({
   auditProgress,
   error,
   folderPathInputRef,
+  selectedFilesInputRef,
   folderPathTestSummary,
   includeLowResolutionAnalysis,
   includeBlackBorderAnalysis,
   isAuditActive,
   isAuditVisible,
   onFolderAuditClick,
+  onFilesAuditClick,
   onFolderPathSelect,
+  onSelectedFilesSelect,
   onIncludeLowResolutionAnalysisChange,
   onIncludeBlackBorderAnalysisChange,
   videoRows,
@@ -51,7 +57,7 @@ export function UploadPanel({
       <p className="eyebrow">Video Audit</p>
 
       {!videoRows && (
-        <h2 id="upload-heading">Select a folder to audit videos</h2>
+        <h2 id="upload-heading">Select a folder or files to audit videos</h2>
       )}
 
       {!videoRows && (
@@ -86,8 +92,8 @@ export function UploadPanel({
               <label htmlFor="include-black-border-analysis">
                 <span>Black-border analysis</span>
                 <small>
-                  Detects nested black borders and crop candidates. Slower on
-                  large folders.
+                  Detects asymmetric or boxed borders and crop candidates.
+                  Slower on large folders.
                 </small>
               </label>
             </div>
@@ -100,6 +106,13 @@ export function UploadPanel({
               disabled={!canStartAudit}
               onClick={onFolderAuditClick}
             />
+            <Button
+              type="button"
+              label="Scan files"
+              className="upload-button upload-button-secondary"
+              disabled={!canStartAudit}
+              onClick={onFilesAuditClick}
+            />
           </div>
         </div>
       )}
@@ -110,6 +123,15 @@ export function UploadPanel({
         multiple
         webkitdirectory=""
         onChange={onFolderPathSelect}
+        style={{ display: 'none' }}
+      />
+
+      <DirectoryInput
+        ref={selectedFilesInputRef}
+        type="file"
+        multiple
+        accept="video/*,.mp4,.mov,.m4v,.mkv,.avi,.webm"
+        onChange={onSelectedFilesSelect}
         style={{ display: 'none' }}
       />
 

@@ -11,12 +11,14 @@ import {
   initialAutoCropProgress,
   initialMigrationProgress,
   isAutoCropCandidate,
+  isVideoLikeFile,
   loadStoredVideoData,
   mergeAuditProgress,
   mergeAutoCropProgress,
   mergeMigrationProgress,
   saveVideoData,
   toFolderPathManifest,
+  toSelectedFilesManifest,
   toVideoRow,
 } from '../helpers/utils'
 import type {
@@ -30,6 +32,7 @@ import type {
   AutoCropResultResponse,
   AutoCropStartResponse,
   FolderPathTestSummary,
+  SelectedFileManifestItem,
   StoredVideoData,
   VideoRow,
 } from '../types/video'
@@ -126,6 +129,7 @@ export function useVideoAuditController() {
     loadStoredVideoData(),
   )
   const folderPathInputRef = useRef<HTMLInputElement | null>(null)
+  const selectedFilesInputRef = useRef<HTMLInputElement | null>(null)
   const newEditedFolderInputRef = useRef<HTMLInputElement | null>(null)
   const auditEventSourceRef = useRef<EventSource | null>(null)
   const autoCropEventSourceRef = useRef<EventSource | null>(null)
@@ -341,7 +345,7 @@ export function useVideoAuditController() {
   const handleAuditResult = async (
     jobId: string,
     resolvedDirectory: string | null,
-    requestPayloadJson: string,
+    requestPayloadJson: string | null,
   ) => {
     const response = await fetch(`${apiBaseUrl}/api/audits/${jobId}/result`)
 
@@ -397,9 +401,30 @@ export function useVideoAuditController() {
   }
 
   const startAudit = async (requestPayloadJson: string) => {
-    try {
-      const requestPayload = parseAuditRequestPayload(requestPayloadJson)
+    const requestPayload = parseAuditRequestPayload(requestPayloadJson)
 
+    await startAuditJob({
+      requestPayloadJson,
+      resolveMessage: 'Resolving selected folder...',
+      startRequest: () =>
+        fetch(`${apiBaseUrl}/api/audits`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestPayload),
+        }),
+    })
+  }
+
+  const startAuditJob = async ({
+    requestPayloadJson,
+    resolveMessage,
+    startRequest,
+  }: {
+    requestPayloadJson: string | null
+    resolveMessage: string
+    startRequest: () => Promise<Response>
+  }) => {
+    try {
       closeAuditEventSource()
       setError(null)
       setGlobalFilter('')
@@ -414,14 +439,10 @@ export function useVideoAuditController() {
         ...initialAuditProgress,
         status: 'starting',
         phase: 'resolve',
-        message: 'Resolving selected folder...',
+        message: resolveMessage,
       })
 
-      const response = await fetch(`${apiBaseUrl}/api/audits`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestPayload),
-      })
+      const response = await startRequest()
       const payload = (await response.json()) as AuditStartResponse
 
       if (payload.status === 'not_found') {
@@ -570,6 +591,10 @@ export function useVideoAuditController() {
     folderPathInputRef.current?.click()
   }
 
+  const handleOpenSelectedFilesAudit = () => {
+    selectedFilesInputRef.current?.click()
+  }
+
   const handleFolderPathSelect = async (event: ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(event.currentTarget.files ?? [])
     const manifest = toFolderPathManifest(event.currentTarget.files)
@@ -617,6 +642,63 @@ export function useVideoAuditController() {
     }
 
     await startAudit(JSON.stringify(requestPayload))
+  }
+
+  const handleSelectedFilesSelect = async (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const allSelectedFiles = Array.from(event.currentTarget.files ?? [])
+    const selectedVideoFiles = allSelectedFiles
+      .filter(isVideoLikeFile)
+      .filter((file) => !file.name.startsWith('._'))
+    const manifest = toSelectedFilesManifest(event.currentTarget.files)
+    const summary: FolderPathTestSummary = {
+      totalSelectedFiles: allSelectedFiles.length,
+      videoFileCount: manifest.length,
+      rootPath: 'Selected files',
+      firstRelativePath: manifest[0]?.relativePath ?? null,
+    }
+
+    setFolderPathTestSummary(summary)
+    event.currentTarget.value = ''
+
+    if (manifest.length === 0 || selectedVideoFiles.length === 0) {
+      const message = 'The selected files do not include any video files.'
+      setError(message)
+      toast.current?.show({
+        severity: 'warn',
+        summary: 'No videos found',
+        detail: message,
+        life: 4200,
+      })
+      return
+    }
+
+    const formData = new FormData()
+    const requestMetadata: SelectedFileManifestItem[] = manifest
+
+    selectedVideoFiles.forEach((file) => {
+      formData.append('files', file, file.name)
+    })
+    formData.append('metadata', JSON.stringify(requestMetadata))
+    formData.append(
+      'includeLowResolutionAnalysis',
+      String(includeLowResolutionAnalysis),
+    )
+    formData.append(
+      'includeBlackBorderAnalysis',
+      String(includeBlackBorderAnalysis),
+    )
+
+    await startAuditJob({
+      requestPayloadJson: null,
+      resolveMessage: 'Preparing selected files...',
+      startRequest: () =>
+        fetch(`${apiBaseUrl}/api/audits/files`, {
+          method: 'POST',
+          body: formData,
+        }),
+    })
   }
 
   const handleRefreshData = async () => {
@@ -1413,11 +1495,13 @@ export function useVideoAuditController() {
     handleOpenFolderPathTest,
     handleOpenMigrationDialog,
     handleOpenPremiereExportDialog,
+    handleOpenSelectedFilesAudit,
     handleRefreshData,
     handleSelectNewEditedFolderClick,
     handleStartMigrationScan,
     handleSubmitAutoCrop,
     handleSubmitPremiereExport,
+    handleSelectedFilesSelect,
     includeLowResolutionAnalysis,
     includeBlackBorderAnalysis,
     isAuditActive,
@@ -1445,6 +1529,7 @@ export function useVideoAuditController() {
     premiereStatus,
     selectedPremierePresetId,
     selectedVideos,
+    selectedFilesInputRef,
     canRefresh: Boolean(storedPayload),
     canAutoCropSelected,
     canStartMigration,

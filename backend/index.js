@@ -1,11 +1,13 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
+const os = require("node:os");
 const path = require("node:path");
 const cors = require("cors");
 const express = require("express");
+const multer = require("multer");
 require("dotenv").config();
 
-const { auditVideos } = require("./utils/fileAudit");
+const { auditSelectedVideoFiles, auditVideos } = require("./utils/fileAudit");
 const {
   runAutoCrop,
   validateAutoCropRequest,
@@ -36,6 +38,9 @@ const SYSTEM_DIRECTORY_NAMES = new Set([
 
 const PORT = Number(process.env.PORT || 3001);
 const HOST = process.env.HOST || "127.0.0.1";
+const upload = multer({
+  dest: path.join(os.tmpdir(), "video-audit-uploads"),
+});
 const jobs = new Map();
 const autoCropJobs = new Map();
 const migrationPlans = new Map();
@@ -62,6 +67,52 @@ function isSafeRelativePath(value) {
 
 function getRelativePathSegments(value) {
   return value.split(/[\\/]+/).filter(Boolean);
+}
+
+function normalizeDisplayPath(value) {
+  return value.split(/[\\/]+/).filter(Boolean).join("/");
+}
+
+function getCommonDirectory(filePaths) {
+  if (filePaths.length === 0) {
+    return null;
+  }
+
+  const directorySegments = filePaths.map((filePath) =>
+    getRelativePathSegments(path.dirname(path.resolve(filePath)))
+  );
+  const firstSegments = directorySegments[0];
+  const commonSegments = [];
+
+  for (let index = 0; index < firstSegments.length; index += 1) {
+    const segment = firstSegments[index];
+
+    if (directorySegments.every((segments) => segments[index] === segment)) {
+      commonSegments.push(segment);
+      continue;
+    }
+
+    break;
+  }
+
+  const root = path.parse(path.resolve(filePaths[0])).root;
+  return commonSegments.length > 0
+    ? path.join(root, ...commonSegments)
+    : root || null;
+}
+
+function getDisplayParts({ rootDirectory, filePath, fallbackRelativePath, fileName }) {
+  const relativePath =
+    rootDirectory && filePath
+      ? path.relative(rootDirectory, filePath)
+      : fallbackRelativePath || fileName;
+  const normalizedRelativePath = normalizeDisplayPath(relativePath || fileName);
+  const parts = normalizedRelativePath.split("/").filter(Boolean);
+
+  return {
+    displayFile: normalizedRelativePath || fileName,
+    displayDirectory: parts.length > 1 ? parts.slice(0, -1).join("/") : "",
+  };
 }
 
 function getResolvedDirectoryFromMatch({ matchedFilePath, relativePath, rootPath }) {
@@ -187,6 +238,100 @@ function validateAuditRequest(body) {
   return null;
 }
 
+function parseRequestBoolean(value, defaultValue) {
+  if (value === undefined) {
+    return { value: defaultValue };
+  }
+
+  if (value === true || value === "true") {
+    return { value: true };
+  }
+
+  if (value === false || value === "false") {
+    return { value: false };
+  }
+
+  return { error: "Audit option values must be boolean." };
+}
+
+function parseFileMetadata(value) {
+  if (value === undefined) {
+    return [];
+  }
+
+  if (typeof value !== "string") {
+    throw new Error("metadata must be a JSON string.");
+  }
+
+  const parsed = JSON.parse(value);
+
+  if (!Array.isArray(parsed)) {
+    throw new Error("metadata must be a JSON array.");
+  }
+
+  return parsed;
+}
+
+function validateFileAuditRequest({ files, includeLowResolutionAnalysis, includeBlackBorderAnalysis }) {
+  if (!Array.isArray(files) || files.length === 0) {
+    return "At least one file is required.";
+  }
+
+  if (includeLowResolutionAnalysis === false && includeBlackBorderAnalysis !== true) {
+    return "At least one audit option must be selected.";
+  }
+
+  return null;
+}
+
+function buildSelectedFilesFromUpload({ uploadedFiles, metadata }) {
+  const sourcePaths = metadata
+    .map((item) =>
+      item && typeof item.sourcePath === "string" && path.isAbsolute(item.sourcePath)
+        ? item.sourcePath
+        : null
+    );
+  const allFilesHaveSourcePaths =
+    uploadedFiles.length > 0 &&
+    sourcePaths.length === uploadedFiles.length &&
+    sourcePaths.every(Boolean);
+  const rootDirectory = allFilesHaveSourcePaths
+    ? getCommonDirectory(sourcePaths)
+    : "Selected files";
+
+  const selectedFiles = uploadedFiles.map((file, index) => {
+    const item =
+      metadata[index] && typeof metadata[index] === "object" ? metadata[index] : {};
+    const sourcePath = allFilesHaveSourcePaths ? sourcePaths[index] : null;
+    const fileName =
+      typeof item.fileName === "string" && item.fileName
+        ? item.fileName
+        : file.originalname;
+    const relativePath =
+      typeof item.relativePath === "string" && item.relativePath
+        ? item.relativePath
+        : fileName;
+    const displayParts = getDisplayParts({
+      rootDirectory: allFilesHaveSourcePaths ? rootDirectory : null,
+      filePath: sourcePath,
+      fallbackRelativePath: relativePath,
+      fileName,
+    });
+
+    return {
+      analysisPath: sourcePath || file.path,
+      resultPath: sourcePath || file.path,
+      fileName,
+      ...displayParts,
+    };
+  });
+
+  return {
+    rootDirectory,
+    selectedFiles,
+  };
+}
+
 async function resolveSelectedFolder({ rootPath, sampleFile }) {
   const matches = new Map();
   const searchRoots = getSearchRoots();
@@ -254,6 +399,7 @@ async function resolveSelectedFolder({ rootPath, sampleFile }) {
 
 function createJob({
   resolvedDirectory,
+  selectedFiles = null,
   includeLowResolutionAnalysis = true,
   includeBlackBorderAnalysis = false,
 }) {
@@ -274,6 +420,7 @@ function createJob({
     error: null,
     includeLowResolutionAnalysis,
     includeBlackBorderAnalysis,
+    selectedFiles,
     listeners: new Set(),
   };
 
@@ -297,6 +444,9 @@ function serializeJob(job) {
     error: job.error,
     includeLowResolutionAnalysis: job.includeLowResolutionAnalysis,
     includeBlackBorderAnalysis: job.includeBlackBorderAnalysis,
+    selectedFileCount: Array.isArray(job.selectedFiles)
+      ? job.selectedFiles.length
+      : null,
   };
 }
 
@@ -328,18 +478,32 @@ async function runAuditJob(jobId) {
   broadcast(job, "progress");
 
   try {
-    const result = await auditVideos({
-      directoryPath: job.resolvedDirectory,
-      includeLowResolutionAnalysis: job.includeLowResolutionAnalysis,
-      includeBlackBorderAnalysis: job.includeBlackBorderAnalysis,
-      onProgress(progress) {
-        updateJobFromProgress(job, progress);
+    const result = Array.isArray(job.selectedFiles)
+      ? await auditSelectedVideoFiles({
+          files: job.selectedFiles,
+          rootDirectoryPath: job.resolvedDirectory,
+          includeLowResolutionAnalysis: job.includeLowResolutionAnalysis,
+          includeBlackBorderAnalysis: job.includeBlackBorderAnalysis,
+          onProgress(progress) {
+            updateJobFromProgress(job, progress);
 
-        if (progress.phase !== "complete") {
-          broadcast(job, "progress");
-        }
-      },
-    });
+            if (progress.phase !== "complete") {
+              broadcast(job, "progress");
+            }
+          },
+        })
+      : await auditVideos({
+          directoryPath: job.resolvedDirectory,
+          includeLowResolutionAnalysis: job.includeLowResolutionAnalysis,
+          includeBlackBorderAnalysis: job.includeBlackBorderAnalysis,
+          onProgress(progress) {
+            updateJobFromProgress(job, progress);
+
+            if (progress.phase !== "complete") {
+              broadcast(job, "progress");
+            }
+          },
+        });
 
     job.status = "complete";
     job.phase = "complete";
@@ -943,6 +1107,75 @@ app.post("/api/audits", async (req, res) => {
     includeLowResolutionAnalysis,
     includeBlackBorderAnalysis,
   });
+
+  setImmediate(() => {
+    runAuditJob(job.id);
+  });
+
+  res.status(202).json({
+    jobId: job.id,
+    status: "started",
+    resolvedDirectory: job.resolvedDirectory,
+  });
+});
+
+app.post("/api/audits/files", upload.array("files"), async (req, res) => {
+  const includeLowResolution = parseRequestBoolean(
+    req.body.includeLowResolutionAnalysis,
+    true
+  );
+  const includeBlackBorder = parseRequestBoolean(
+    req.body.includeBlackBorderAnalysis,
+    false
+  );
+
+  if (includeLowResolution.error || includeBlackBorder.error) {
+    res.status(400).json({
+      status: "invalid_request",
+      message: includeLowResolution.error || includeBlackBorder.error,
+    });
+    return;
+  }
+
+  let metadata;
+
+  try {
+    metadata = parseFileMetadata(req.body.metadata);
+  } catch (error) {
+    res.status(400).json({
+      status: "invalid_request",
+      message: error.message,
+    });
+    return;
+  }
+
+  const uploadedFiles = Array.isArray(req.files) ? req.files : [];
+  const validationError = validateFileAuditRequest({
+    files: uploadedFiles,
+    includeLowResolutionAnalysis: includeLowResolution.value,
+    includeBlackBorderAnalysis: includeBlackBorder.value,
+  });
+
+  if (validationError) {
+    res.status(400).json({
+      status: "invalid_request",
+      message: validationError,
+    });
+    return;
+  }
+
+  const { rootDirectory, selectedFiles } = buildSelectedFilesFromUpload({
+    uploadedFiles,
+    metadata,
+  });
+  const job = createJob({
+    resolvedDirectory: rootDirectory,
+    selectedFiles,
+    includeLowResolutionAnalysis: includeLowResolution.value,
+    includeBlackBorderAnalysis: includeBlackBorder.value,
+  });
+
+  job.message = "Selected files prepared.";
 
   setImmediate(() => {
     runAuditJob(job.id);

@@ -89,6 +89,17 @@
   border-color: #115e59;
 }
 
+.upload-button-secondary.p-button {
+  background: #1f2937;
+  border-color: #1f2937;
+}
+
+.upload-button-secondary.p-button:enabled:hover,
+.upload-button-secondary.p-button:enabled:focus {
+  background: #111827;
+  border-color: #111827;
+}
+
 .upload-actions {
   display: flex;
   align-items: center;
@@ -387,6 +398,7 @@
 .table-section .p-datatable {
   width: 100%;
   max-width: 100%;
+  font-size: 0.8rem;
   text-align: left;
 }
 
@@ -416,6 +428,7 @@
 .table-section .p-datatable-header {
   border-top-left-radius: 8px;
   border-top-right-radius: 8px;
+  padding: 0.65rem 0.75rem;
 }
 
 .table-error-panel {
@@ -440,15 +453,22 @@
   gap: 18px;
 }
 
+.table-header > div:first-child {
+  flex: 1 1 220px;
+  min-width: 220px;
+}
+
 .table-header h2 {
-  margin: 0 0 1.5rem;
+  margin: 0 0 0.5rem;
   color: #161f25;
+  font-size: 1.05rem;
 }
 
 .table-header p {
   margin: 0;
   color: var(--text);
-  font-size: 0.95rem;
+  font-size: 0.82rem;
+  line-height: 1.35;
 }
 
 .table-header .table-visible-count {
@@ -460,11 +480,31 @@
 .table-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 10px;
+}
+
+.table-actions .p-button {
+  padding: 0.4rem 0.65rem;
+  font-size: 0.8rem;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.table-actions .p-button .p-button-label {
+  white-space: nowrap;
 }
 
 .table-actions .p-inputtext {
   width: min(280px, 42vw);
+  padding: 0.45rem 0.6rem;
+  line-height: 1.2;
+}
+
+.table-actions .p-inputtext,
+.table-column-filter {
+  font-size: 0.8rem;
 }
 
 .table-column-filter {
@@ -496,7 +536,7 @@
 .cell-muted,
 .cell-path {
   color: #161F25;
-  font-size: 0.9rem;
+  font-size: 0.78rem;
 }
 
 .cell-path,
@@ -525,33 +565,52 @@
   font-size: 0.92rem;
 }
 
-.p-datatable .p-datatable-thead > tr > th {
-  padding: 0.5rem !important;
+.video-table .p-datatable-thead > tr > th {
+  padding: 0.4rem 0.5rem !important;
+  font-size: 0.8rem;
+  line-height: 1.25;
 }
 
-.p-column-filter-row .p-column-filter-element {
+.video-table .p-datatable-tbody > tr > td {
+  padding: 0.4rem 0.5rem;
+}
+
+.video-table .p-column-filter-row .p-column-filter-element {
   width: 100% !important;
 }
 
-.p-dropdown .p-dropdown-trigger {
-  width: 2rem !important;
+.video-table .p-dropdown .p-dropdown-trigger,
+.video-table .p-multiselect .p-multiselect-trigger {
+  width: 1.65rem !important;
 }
 
-.p-multiselect .p-multiselect-trigger {
-  width: 2rem !important;
-}
-
-.p-fluid .p-dropdown .p-dropdown-label {
-  padding: 0.5rem !important;
+.video-table .p-dropdown .p-dropdown-label,
+.video-table .p-multiselect .p-multiselect-label {
+  padding: 0.35rem 0.45rem !important;
   width: 100% !important;
+  font-size: 0.8rem;
+  line-height: 1.25;
 }
 
-.p-multiselect .p-multiselect-label {
-  padding: 0.5rem !important;
-  width: 100% !important;
+.video-table .p-column-filter-clear-button,
+.video-table .p-column-filter-menu-button,
+.video-table .p-sortable-column-icon {
+  width: 0.7rem;
+  height: 0.7rem;
 }
 
-.p-datatable .p-datatable-tbody > tr {
+.table-section .p-paginator {
+  padding: 0.35rem;
+  font-size: 0.8rem;
+}
+
+.table-section .p-paginator .p-paginator-element {
+  min-width: 2rem;
+  height: 2rem;
+}
+
+.table-section .p-paginator .p-dropdown {
+  height: 2rem;
   font-size: 0.8rem;
 }
 

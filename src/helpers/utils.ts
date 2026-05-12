@@ -5,6 +5,7 @@ import type {
   AutoCropProgressPayload,
   BlackBorderAdjustment,
   FolderPathManifestItem,
+  SelectedFileManifestItem,
   StoredVideoData,
   VideoAdjustments,
   VideoRow,
@@ -144,10 +145,14 @@ const getDisplayFile = (
     return pathAfterEdited
   }
 
-  return fileName || existingDisplayFile || path || 'Untitled video'
+  return existingDisplayFile || fileName || path || 'Untitled video'
 }
 
-const getDisplayDirectory = (path: string, directory: string) => {
+const getDisplayDirectory = (
+  path: string,
+  directory: string,
+  existingDisplayDirectory = '',
+) => {
   const pathAfterEdited = getPathAfterEdited(path)
 
   if (pathAfterEdited) {
@@ -155,7 +160,7 @@ const getDisplayDirectory = (path: string, directory: string) => {
     return pathParts.slice(0, -1).join('/')
   }
 
-  return directory
+  return existingDisplayDirectory || directory
 }
 
 export const getRowDisplayFile = (row: VideoRow) =>
@@ -194,6 +199,7 @@ export const toVideoRow = (source: VideoSource): VideoRow => ({
   displayDirectory: getDisplayDirectory(
     readString(source, 'path'),
     readString(source, 'directory'),
+    readString(source, 'displayDirectory'),
   ),
   path: readString(source, 'path'),
   directory: readString(source, 'directory'),
@@ -469,11 +475,65 @@ export const clearStoredVideoData = () => {
   }
 }
 
-const isVideoLikeFile = (file: File) => {
+export const isVideoLikeFile = (file: File) => {
   const lowerName = file.name.toLowerCase()
   return Array.from(videoExtensions).some((extension) =>
     lowerName.endsWith(extension),
   )
+}
+
+type FileWithMaybePath = File & {
+  path?: string
+}
+
+const toSlashPath = (value: string) => value.replace(/\\/g, '/')
+
+const getPathParts = (value: string) =>
+  toSlashPath(value).split('/').filter(Boolean)
+
+const isAbsoluteClientPath = (value: string) =>
+  value.startsWith('/') || /^[A-Za-z]:\//.test(toSlashPath(value))
+
+const getDirectoryPath = (value: string) => {
+  const normalized = toSlashPath(value)
+  const lastSlashIndex = normalized.lastIndexOf('/')
+
+  return lastSlashIndex > 0 ? normalized.slice(0, lastSlashIndex) : ''
+}
+
+const getCommonDirectoryPath = (filePaths: string[]) => {
+  const directoryParts = filePaths.map((filePath) =>
+    getPathParts(getDirectoryPath(filePath)),
+  )
+  const firstParts = directoryParts[0] ?? []
+  const commonParts: string[] = []
+
+  for (let index = 0; index < firstParts.length; index += 1) {
+    const part = firstParts[index]
+
+    if (directoryParts.every((parts) => parts[index] === part)) {
+      commonParts.push(part)
+      continue
+    }
+
+    break
+  }
+
+  if (commonParts.length === 0) {
+    return filePaths[0]?.startsWith('/') ? '/' : ''
+  }
+
+  return `${filePaths[0]?.startsWith('/') ? '/' : ''}${commonParts.join('/')}`
+}
+
+const getRelativeClientPath = (rootPath: string, filePath: string) => {
+  const normalizedRoot = toSlashPath(rootPath).replace(/\/+$/, '')
+  const normalizedFilePath = toSlashPath(filePath)
+  const prefix = normalizedRoot ? `${normalizedRoot}/` : ''
+
+  return prefix && normalizedFilePath.startsWith(prefix)
+    ? normalizedFilePath.slice(prefix.length)
+    : normalizedFilePath.split('/').filter(Boolean).at(-1) || normalizedFilePath
 }
 
 export const toFolderPathManifest = (
@@ -495,6 +555,37 @@ export const toFolderPathManifest = (
         relativePath,
       }
     })
+}
+
+export const toSelectedFilesManifest = (
+  fileList: FileList | null,
+): SelectedFileManifestItem[] => {
+  const selectedFiles = Array.from(fileList ?? [])
+    .filter(isVideoLikeFile)
+    .filter((file) => !file.name.startsWith('._'))
+  const sourcePaths = selectedFiles
+    .map((file) => toSlashPath((file as FileWithMaybePath).path ?? ''))
+    .filter((value) => value && isAbsoluteClientPath(value))
+  const commonRootPath =
+    sourcePaths.length === selectedFiles.length && sourcePaths.length > 0
+      ? getCommonDirectoryPath(sourcePaths)
+      : null
+
+  return selectedFiles.map((file) => {
+    const sourcePath = toSlashPath((file as FileWithMaybePath).path ?? '')
+    const absoluteSourcePath =
+      sourcePath && isAbsoluteClientPath(sourcePath) ? sourcePath : null
+    const relativePath =
+      absoluteSourcePath && commonRootPath
+        ? getRelativeClientPath(commonRootPath, absoluteSourcePath)
+        : file.webkitRelativePath || file.name
+
+    return {
+      fileName: file.name,
+      relativePath,
+      sourcePath: absoluteSourcePath,
+    }
+  })
 }
 
 export const mergeAuditProgress = (
