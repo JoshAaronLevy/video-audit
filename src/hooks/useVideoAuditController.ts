@@ -147,6 +147,8 @@ export function useVideoAuditController() {
   const [isPersisted, setIsPersisted] = useState(() => Boolean(initialData))
   const [isTableLoading, setIsTableLoading] = useState(false)
   const [globalFilter, setGlobalFilter] = useState('')
+  const [includeLowResolutionAnalysis, setIncludeLowResolutionAnalysis] =
+    useState(true)
   const [includeBlackBorderAnalysis, setIncludeBlackBorderAnalysis] =
     useState(false)
   const [folderPathTestSummary, setFolderPathTestSummary] =
@@ -610,6 +612,7 @@ export function useVideoAuditController() {
     const requestPayload: AuditRequestPayload = {
       rootPath: sampleFile.rootPath,
       sampleFile,
+      includeLowResolutionAnalysis,
       includeBlackBorderAnalysis,
     }
 
@@ -1415,6 +1418,7 @@ export function useVideoAuditController() {
     handleStartMigrationScan,
     handleSubmitAutoCrop,
     handleSubmitPremiereExport,
+    includeLowResolutionAnalysis,
     includeBlackBorderAnalysis,
     isAuditActive,
     isAuditVisible,
@@ -1445,6 +1449,7 @@ export function useVideoAuditController() {
     canAutoCropSelected,
     canStartMigration,
     canExportToPremiere,
+    setIncludeLowResolutionAnalysis,
     setIncludeBlackBorderAnalysis,
     setSelectedPremierePresetId,
     setSelectedVideos,

@@ -110,6 +110,7 @@ export type FolderPathTestSummary = {
 export type AuditRequestPayload = {
   rootPath: string
   sampleFile: FolderPathManifestItem
+  includeLowResolutionAnalysis?: boolean
   includeBlackBorderAnalysis?: boolean
 }
 

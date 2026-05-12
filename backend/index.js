@@ -170,6 +170,20 @@ function validateAuditRequest(body) {
     return "includeBlackBorderAnalysis must be a boolean when provided.";
   }
 
+  if (
+    body.includeLowResolutionAnalysis !== undefined &&
+    typeof body.includeLowResolutionAnalysis !== "boolean"
+  ) {
+    return "includeLowResolutionAnalysis must be a boolean when provided.";
+  }
+
+  if (
+    body.includeLowResolutionAnalysis === false &&
+    body.includeBlackBorderAnalysis !== true
+  ) {
+    return "At least one audit option must be selected.";
+  }
+
   return null;
 }
 
@@ -238,7 +252,11 @@ async function resolveSelectedFolder({ rootPath, sampleFile }) {
   return Array.from(matches.values());
 }
 
-function createJob({ resolvedDirectory, includeBlackBorderAnalysis = false }) {
+function createJob({
+  resolvedDirectory,
+  includeLowResolutionAnalysis = true,
+  includeBlackBorderAnalysis = false,
+}) {
   const id = crypto.randomUUID();
   const job = {
     id,
@@ -254,6 +272,7 @@ function createJob({ resolvedDirectory, includeBlackBorderAnalysis = false }) {
     message: "Selected folder resolved.",
     result: null,
     error: null,
+    includeLowResolutionAnalysis,
     includeBlackBorderAnalysis,
     listeners: new Set(),
   };
@@ -276,6 +295,7 @@ function serializeJob(job) {
     currentFile: job.currentFile,
     message: job.message,
     error: job.error,
+    includeLowResolutionAnalysis: job.includeLowResolutionAnalysis,
     includeBlackBorderAnalysis: job.includeBlackBorderAnalysis,
   };
 }
@@ -310,6 +330,7 @@ async function runAuditJob(jobId) {
   try {
     const result = await auditVideos({
       directoryPath: job.resolvedDirectory,
+      includeLowResolutionAnalysis: job.includeLowResolutionAnalysis,
       includeBlackBorderAnalysis: job.includeBlackBorderAnalysis,
       onProgress(progress) {
         updateJobFromProgress(job, progress);
@@ -895,6 +916,7 @@ app.post("/api/audits", async (req, res) => {
   const {
     rootPath,
     sampleFile,
+    includeLowResolutionAnalysis = true,
     includeBlackBorderAnalysis = false,
   } = req.body;
   const matches = await resolveSelectedFolder({ rootPath, sampleFile });
@@ -918,6 +940,7 @@ app.post("/api/audits", async (req, res) => {
 
   const job = createJob({
     resolvedDirectory: matches[0].resolvedDirectory,
+    includeLowResolutionAnalysis,
     includeBlackBorderAnalysis,
   });
 

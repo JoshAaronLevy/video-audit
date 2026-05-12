@@ -52,6 +52,7 @@ function App() {
     handleStartMigrationScan,
     handleSubmitAutoCrop,
     handleSubmitPremiereExport,
+    includeLowResolutionAnalysis,
     includeBlackBorderAnalysis,
     isAuditActive,
     isAuditVisible,
@@ -78,6 +79,7 @@ function App() {
     premiereStatus,
     selectedPremierePresetId,
     selectedVideos,
+    setIncludeLowResolutionAnalysis,
     setIncludeBlackBorderAnalysis,
     setSelectedPremierePresetId,
     setSelectedVideos,
@@ -106,11 +108,13 @@ function App() {
         error={hasTableSurface ? null : error}
         folderPathInputRef={folderPathInputRef}
         folderPathTestSummary={folderPathTestSummary}
+        includeLowResolutionAnalysis={includeLowResolutionAnalysis}
         includeBlackBorderAnalysis={includeBlackBorderAnalysis}
         isAuditActive={isAuditActive}
         isAuditVisible={isAuditVisible}
         onFolderAuditClick={handleOpenFolderPathTest}
         onFolderPathSelect={handleFolderPathSelect}
+        onIncludeLowResolutionAnalysisChange={setIncludeLowResolutionAnalysis}
         onIncludeBlackBorderAnalysisChange={setIncludeBlackBorderAnalysis}
         videoRows={videoRows}
       />

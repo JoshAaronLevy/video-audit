@@ -60,7 +60,7 @@ The UI shows the friendly preset label, but sends only the stable preset ID to t
 
 ## Black-Border Analysis And Auto-Crop
 
-Folder audits can optionally run FFmpeg `cropdetect` analysis by sending `includeBlackBorderAnalysis: true` in the audit request. When enabled, flagged video records may include `adjustments.blackBorder` with the detected visible area, border sizes, confidence, and auto-crop eligibility. Existing audits still skip this extra FFmpeg analysis unless the request explicitly opts in.
+Folder audits can run the standard low-resolution/aspect-ratio scan, FFmpeg `cropdetect` black-border analysis, or both. Send `includeLowResolutionAnalysis: false` with `includeBlackBorderAnalysis: true` to run a black-border-only scan. When black-border analysis is enabled, flagged video records may include `adjustments.blackBorder` with the detected visible area, border sizes, confidence, and auto-crop eligibility. Existing saved audit payloads without `includeLowResolutionAnalysis` still default to the standard scan.
 
 Auto-crop is a separate backend workflow from the Premiere bridge. It uses FFmpeg directly, only processes high-confidence 16:9 nested-border candidates, and writes cropped MP4 files into a unique run folder such as:
 

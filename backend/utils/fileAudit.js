@@ -395,6 +395,7 @@ function buildFlaggedVideoRecord({
   minHeight,
   targetAspectRatio,
   aspectRatioTolerance,
+  includeLowResolutionAnalysis,
   blackBorder,
 }) {
   const width = safeNumber(stream.width);
@@ -486,8 +487,12 @@ function buildFlaggedVideoRecord({
     isLowResolution,
     isWrongAspectRatio,
     reasons: [
-      isLowResolution ? `height below ${minHeight}` : null,
-      isWrongAspectRatio ? "not 16:9 aspect ratio" : null,
+      includeLowResolutionAnalysis && isLowResolution
+        ? `height below ${minHeight}`
+        : null,
+      includeLowResolutionAnalysis && isWrongAspectRatio
+        ? "not 16:9 aspect ratio"
+        : null,
       nestedBlackBordersDetected ? "nested black borders detected" : null,
     ]
       .filter(Boolean)
@@ -508,6 +513,7 @@ async function auditVideos({
   minHeight = DEFAULT_MIN_HEIGHT,
   targetAspectRatio = DEFAULT_TARGET_ASPECT_RATIO,
   aspectRatioTolerance = DEFAULT_ASPECT_RATIO_TOLERANCE,
+  includeLowResolutionAnalysis = true,
   includeBlackBorderAnalysis = false,
   onProgress,
 }) {
@@ -628,14 +634,21 @@ async function auditVideos({
       minHeight,
       targetAspectRatio,
       aspectRatioTolerance,
+      includeLowResolutionAnalysis,
       blackBorder,
       status: "Pending",
     });
 
+    const lowResolutionDetected =
+      includeLowResolutionAnalysis &&
+      (record.isLowResolution || record.isWrongAspectRatio);
+    const blackBorderDetected =
+      includeBlackBorderAnalysis &&
+      isHighConfidenceNestedBorderCandidate(blackBorder);
+
     if (
-      record.isLowResolution ||
-      record.isWrongAspectRatio ||
-      isHighConfidenceNestedBorderCandidate(blackBorder)
+      lowResolutionDetected ||
+      blackBorderDetected
     ) {
       flagged.push(record);
     }
