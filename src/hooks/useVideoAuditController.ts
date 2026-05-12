@@ -40,6 +40,7 @@ import type {
   PremiereExportRequestPayload,
   PremiereExportRequestResponse,
   PremiereExportVideo,
+  PremiereImportRequestPayload,
   PremierePreset,
   PremiereStatusResponse,
 } from '../types/premiere'
@@ -181,6 +182,8 @@ export function useVideoAuditController() {
   const [autoCropResult, setAutoCropResult] =
     useState<AutoCropResultResponse | null>(null)
   const [autoCropError, setAutoCropError] = useState<string | null>(null)
+  const [isPremiereImportSubmitting, setIsPremiereImportSubmitting] =
+    useState(false)
   const [isMigrationScanDialogVisible, setIsMigrationScanDialogVisible] =
     useState(false)
   const [isMigrationScanning, setIsMigrationScanning] = useState(false)
@@ -1072,7 +1075,7 @@ export function useVideoAuditController() {
   }
 
   const handleCloseAutoCropDialog = () => {
-    if (isAutoCropSubmitting) {
+    if (isAutoCropSubmitting || isPremiereImportSubmitting) {
       return
     }
 
@@ -1256,6 +1259,76 @@ export function useVideoAuditController() {
         detail: message,
         life: 5200,
       })
+    }
+  }
+
+  const handleSubmitPremiereImport = async () => {
+    if (selectedVideos.length === 0) {
+      setAutoCropError('Select at least one video to import into Premiere.')
+      return
+    }
+
+    if (premiereStatus?.status !== 'ready') {
+      setAutoCropError('Premiere bridge must be ready before importing videos.')
+      return
+    }
+
+    const requestPayload: PremiereImportRequestPayload = {
+      videos: selectedVideos.map(toPremiereExportVideo),
+    }
+
+    setIsPremiereImportSubmitting(true)
+    setAutoCropError(null)
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/premiere/import-requests`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestPayload),
+      })
+      const payload = (await response.json()) as PremiereExportRequestResponse
+
+      if (payload.status === 'bridge_not_ready' && payload.premiereStatus) {
+        setPremiereStatus(payload.premiereStatus)
+        setPremierePresets(
+          Array.isArray(payload.premiereStatus.presets)
+            ? payload.premiereStatus.presets
+            : [],
+        )
+      }
+
+      if (!response.ok || payload.status !== 'queued' || !payload.requestId) {
+        throw new Error(
+          payload.message || 'Unable to import selected videos into Premiere.',
+        )
+      }
+
+      setIsAutoCropDialogVisible(false)
+      setAutoCropError(null)
+      setAutoCropResult(null)
+      setAutoCropProgress(initialAutoCropProgress)
+      toast.current?.show({
+        severity: 'success',
+        summary: 'Import requested',
+        detail:
+          'Selected videos will be imported into the open Premiere project without queueing exports.',
+        life: 4200,
+      })
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error
+          ? caughtError.message
+          : 'Unable to import selected videos into Premiere.'
+
+      setAutoCropError(message)
+      toast.current?.show({
+        severity: 'error',
+        summary: 'Import failed',
+        detail: message,
+        life: 5200,
+      })
+    } finally {
+      setIsPremiereImportSubmitting(false)
     }
   }
 
@@ -1456,10 +1529,17 @@ export function useVideoAuditController() {
     !isAuditActive &&
     !isTableLoading
   const canAutoCropSelected =
-    selectedVideos.some(isAutoCropCandidate) &&
+    selectedVideos.length > 0 &&
     !isAuditActive &&
     !isTableLoading &&
-    !isAutoCropSubmitting
+    !isAutoCropSubmitting &&
+    !isPremiereImportSubmitting
+  const canImportSelectedToPremiere =
+    selectedVideos.length > 0 &&
+    premiereStatus?.status === 'ready' &&
+    !isAuditActive &&
+    !isTableLoading &&
+    !isPremiereImportSubmitting
   const canStartMigration =
     Boolean(auditedRootDirectory) &&
     !isAuditActive &&
@@ -1500,6 +1580,7 @@ export function useVideoAuditController() {
     handleSelectNewEditedFolderClick,
     handleStartMigrationScan,
     handleSubmitAutoCrop,
+    handleSubmitPremiereImport,
     handleSubmitPremiereExport,
     handleSelectedFilesSelect,
     includeLowResolutionAnalysis,
@@ -1508,6 +1589,7 @@ export function useVideoAuditController() {
     isAuditVisible,
     isAutoCropDialogVisible,
     isAutoCropSubmitting,
+    isPremiereImportSubmitting,
     isMigrationExecuting,
     isMigrationScanDialogVisible,
     isMigrationScanning,
@@ -1532,6 +1614,7 @@ export function useVideoAuditController() {
     selectedFilesInputRef,
     canRefresh: Boolean(storedPayload),
     canAutoCropSelected,
+    canImportSelectedToPremiere,
     canStartMigration,
     canExportToPremiere,
     setIncludeLowResolutionAnalysis,

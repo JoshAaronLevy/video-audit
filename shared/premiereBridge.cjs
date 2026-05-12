@@ -4,6 +4,7 @@ const DEFAULT_EXPORT_OUTPUT_DIR = "/Users/joshlevy/Movies/Edited";
 const EXPORT_PROJECT_BIN_NAME = "Video Audit Exports";
 
 const REQUEST_TYPE_EXPORT_SELECTED_VIDEOS = "export-selected-videos";
+const REQUEST_TYPE_IMPORT_SELECTED_VIDEOS = "import-selected-videos";
 
 const BRIDGE_FILE_NAMES = Object.freeze({
   status: "status.json",
@@ -14,6 +15,7 @@ const BRIDGE_DIRECTORY_NAMES = Object.freeze({
   completed: "completed",
   failed: "failed",
   presets: "presets",
+  imports: "imports",
 });
 
 const BRIDGE_STATUS = Object.freeze({
@@ -132,6 +134,38 @@ function isExportSelectedVideosRequest(value) {
   return value.videos.every(isExportRequestVideo);
 }
 
+function isImportSelectedVideosRequest(value) {
+  if (!isPlainObject(value)) {
+    return false;
+  }
+
+  if (typeof value.id !== "string" || value.id.trim() === "") {
+    return false;
+  }
+
+  if (value.type !== REQUEST_TYPE_IMPORT_SELECTED_VIDEOS) {
+    return false;
+  }
+
+  if (!Object.values(REQUEST_LIFECYCLE_STATE).includes(value.status)) {
+    return false;
+  }
+
+  if (typeof value.createdAt !== "string" || Number.isNaN(Date.parse(value.createdAt))) {
+    return false;
+  }
+
+  if (
+    !Array.isArray(value.videos) ||
+    value.videos.length === 0 ||
+    value.videos.length > MAX_EXPORT_REQUEST_VIDEOS
+  ) {
+    return false;
+  }
+
+  return value.videos.every(isExportRequestVideo);
+}
+
 module.exports = {
   BRIDGE_DIRECTORY_NAMES,
   BRIDGE_FILE_NAMES,
@@ -145,8 +179,10 @@ module.exports = {
   PREMIERE_EXPORT_PRESETS,
   REQUEST_LIFECYCLE_STATE,
   REQUEST_TYPE_EXPORT_SELECTED_VIDEOS,
+  REQUEST_TYPE_IMPORT_SELECTED_VIDEOS,
   getPresetById,
   isExportRequestVideo,
   isExportSelectedVideosRequest,
+  isImportSelectedVideosRequest,
   isKnownPresetId,
 };

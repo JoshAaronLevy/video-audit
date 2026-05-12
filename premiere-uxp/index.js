@@ -4,6 +4,7 @@ const DEFAULT_BRIDGE_DIR = "~/VideoAudit/premiere-bridge";
 const DEFAULT_EXPORT_OUTPUT_DIR = "/Users/joshlevy/Movies/Edited";
 const EXPORT_PROJECT_BIN_NAME = "Video Audit Exports";
 const REQUEST_TYPE_EXPORT_SELECTED_VIDEOS = "export-selected-videos";
+const REQUEST_TYPE_IMPORT_SELECTED_VIDEOS = "import-selected-videos";
 const EXPORT_FRAME_WIDTH = 1920;
 const EXPORT_FRAME_HEIGHT = 1080;
 
@@ -900,7 +901,10 @@ function validateRequest(request) {
     throw new Error("Request JSON must be an object.");
   }
 
-  if (request.type !== REQUEST_TYPE_EXPORT_SELECTED_VIDEOS) {
+  if (
+    request.type !== REQUEST_TYPE_EXPORT_SELECTED_VIDEOS &&
+    request.type !== REQUEST_TYPE_IMPORT_SELECTED_VIDEOS
+  ) {
     throw new Error(`Unsupported request type: ${request.type}`);
   }
 
@@ -912,13 +916,20 @@ function validateRequest(request) {
     throw new Error(`Unsupported request status: ${request.status}`);
   }
 
-  if (request.outputDirectory !== DEFAULT_EXPORT_OUTPUT_DIR) {
+  if (
+    request.type === REQUEST_TYPE_EXPORT_SELECTED_VIDEOS &&
+    request.outputDirectory !== DEFAULT_EXPORT_OUTPUT_DIR
+  ) {
     throw new Error(`Unsupported output directory: ${request.outputDirectory}`);
   }
 
-  const preset = getPresetById(request.presetId);
-  if (!preset || preset.presetFileName !== request.presetFileName) {
-    throw new Error(`Unknown preset: ${request.presetId}`);
+  let preset = null;
+
+  if (request.type === REQUEST_TYPE_EXPORT_SELECTED_VIDEOS) {
+    preset = getPresetById(request.presetId);
+    if (!preset || preset.presetFileName !== request.presetFileName) {
+      throw new Error(`Unknown preset: ${request.presetId}`);
+    }
   }
 
   if (!Array.isArray(request.videos) || request.videos.length === 0) {
@@ -939,7 +950,10 @@ function validateRequest(request) {
     }
   });
 
-  return preset;
+  return {
+    preset,
+    type: request.type,
+  };
 }
 
 async function ensurePresetFile(preset) {
@@ -1075,6 +1089,32 @@ async function processExportRequest(request, presetFilePath, partialResult) {
   };
 }
 
+async function processImportRequest(request, partialResult) {
+  const project = await getActiveProject();
+  const importBin = await getOrCreateExportBin(project);
+  const importedItems = partialResult.importedItems;
+
+  for (const [videoIndex, video] of request.videos.entries()) {
+    setLastActivity(`Importing ${video.fileName} (${videoIndex + 1}/${request.videos.length}).`);
+
+    const clipProjectItem = await importVideoIntoBin(project, importBin, video);
+    const itemId = await getProjectItemId(clipProjectItem);
+
+    importedItems.push({
+      videoId: video.id,
+      fileName: video.fileName,
+      sourcePath: video.absolutePath,
+      projectItemId: itemId || null,
+      importedAt: new Date().toISOString(),
+    });
+  }
+
+  return {
+    importedCount: importedItems.length,
+    importedItems,
+  };
+}
+
 async function processRequestFile(requestFile) {
   const requestId = requestFile.name.replace(/\.json$/, "");
 
@@ -1089,20 +1129,33 @@ async function processRequestFile(requestFile) {
   try {
     const rawRequest = await requestFile.read();
     request = JSON.parse(rawRequest);
-    const preset = validateRequest(request);
-    const presetFile = await ensurePresetFile(preset);
+    const requestValidation = validateRequest(request);
+    let result;
 
-    partialResult = {
-      queuedJobs: [],
-      outputDirectory: DEFAULT_EXPORT_OUTPUT_DIR,
-      presetId: request.presetId,
-      presetFileName: request.presetFileName,
-    };
+    if (requestValidation.type === REQUEST_TYPE_IMPORT_SELECTED_VIDEOS) {
+      partialResult = {
+        importedItems: [],
+      };
+      result = await processImportRequest(request, partialResult);
+    } else {
+      const presetFile = await ensurePresetFile(requestValidation.preset);
 
-    const result = await processExportRequest(request, presetFile.presetPath, partialResult);
+      partialResult = {
+        queuedJobs: [],
+        outputDirectory: DEFAULT_EXPORT_OUTPUT_DIR,
+        presetId: request.presetId,
+        presetFileName: request.presetFileName,
+      };
+
+      result = await processExportRequest(request, presetFile.presetPath, partialResult);
+    }
 
     await writeCompletedRequest(requestFile, request, result);
-    setLastActivity(`Request ${requestId} queued ${result.queuedCount} AME job(s).`);
+    if (requestValidation.type === REQUEST_TYPE_IMPORT_SELECTED_VIDEOS) {
+      setLastActivity(`Request ${requestId} imported ${result.importedCount} file(s).`);
+    } else {
+      setLastActivity(`Request ${requestId} queued ${result.queuedCount} AME job(s).`);
+    }
   } catch (error) {
     let parsedRequest = null;
 
@@ -1112,8 +1165,12 @@ async function processRequestFile(requestFile) {
       parsedRequest = { id: requestId, type: REQUEST_TYPE_EXPORT_SELECTED_VIDEOS };
     }
 
-    if (partialResult && partialResult.queuedJobs.length > 0) {
-      partialResult.note = "Some Premiere or AME changes were already made before this failure.";
+    if (
+      partialResult &&
+      ((Array.isArray(partialResult.queuedJobs) && partialResult.queuedJobs.length > 0) ||
+        (Array.isArray(partialResult.importedItems) && partialResult.importedItems.length > 0))
+    ) {
+      partialResult.note = "Some Premiere changes may already have been made before this failure.";
     } else {
       partialResult = null;
     }

@@ -53,6 +53,10 @@ export type PremiereExportRequestPayload = {
   videos: PremiereExportVideo[]
 }
 
+export type PremiereImportRequestPayload = {
+  videos: PremiereExportVideo[]
+}
+
 export type PremiereExportRequestResponse = {
   status: string
   requestId?: string

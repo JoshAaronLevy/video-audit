@@ -26,6 +26,7 @@ function App() {
     auditProgress,
     canAutoCropSelected,
     canExportToPremiere,
+    canImportSelectedToPremiere,
     canRefresh,
     canStartMigration,
     checkPremiereStatus,
@@ -52,6 +53,7 @@ function App() {
     handleSelectNewEditedFolderClick,
     handleStartMigrationScan,
     handleSubmitAutoCrop,
+    handleSubmitPremiereImport,
     handleSubmitPremiereExport,
     handleSelectedFilesSelect,
     includeLowResolutionAnalysis,
@@ -60,6 +62,7 @@ function App() {
     isAuditVisible,
     isAutoCropDialogVisible,
     isAutoCropSubmitting,
+    isPremiereImportSubmitting,
     isMigrationExecuting,
     isMigrationScanDialogVisible,
     isMigrationScanning,
@@ -191,7 +194,10 @@ function App() {
         autoCropPercent={autoCropPercent}
         error={autoCropError}
         isSubmitting={isAutoCropSubmitting}
+        isPremiereImportSubmitting={isPremiereImportSubmitting}
+        canImportToPremiere={canImportSelectedToPremiere}
         onHide={handleCloseAutoCropDialog}
+        onImportToPremiere={handleSubmitPremiereImport}
         onSubmit={handleSubmitAutoCrop}
         progress={autoCropProgress}
         result={autoCropResult}

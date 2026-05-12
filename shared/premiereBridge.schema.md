@@ -10,7 +10,7 @@ This file documents the MVP filesystem bridge contract shared by the Express bac
 | Default bridge directory | `~/VideoAudit/premiere-bridge` |
 | Default export output directory | `/Users/joshlevy/Movies/Edited` |
 | Premiere project bin name | `Video Audit Exports` |
-| Request type | `export-selected-videos` |
+| Request types | `export-selected-videos`, `import-selected-videos` |
 | Heartbeat max age | `30000` ms |
 | Max videos per request | `100` |
 
@@ -23,6 +23,7 @@ This file documents the MVP filesystem bridge contract shared by the Express bac
   completed/
   failed/
   presets/
+  imports/
 ```
 
 The backend creates and writes request JSON files under `requests/`. The UXP plugin reads those files, processes each selected video individually, and then moves the request payload with result metadata to `completed/` or `failed/`.
@@ -47,7 +48,7 @@ The UI should display the friendly `label`, but it should send only the stable `
 
 ## Request JSON
 
-The backend writes one request file per export submission. A request may include multiple videos, but the plugin should create one sequence and one Adobe Media Encoder queue item per video.
+The backend writes one request file per export or import submission. A request may include multiple videos. Export requests create one sequence and one Adobe Media Encoder queue item per video. Import requests only import the selected files into the Premiere project bin.
 
 ```json
 {
@@ -86,6 +87,34 @@ Required fields:
 - `videos`: one to 100 selected videos.
 
 Each video requires `id`, `fileName`, `absolutePath`, and `directory`. Metadata fields such as `durationSeconds`, `width`, `height`, and `frameRate` may be numbers or `null`; `displayAspectRatio` may be a string or `null`.
+
+Import-only requests omit preset and output fields:
+
+```json
+{
+  "id": "8f65f05f-7a7c-41f0-9e98-8c865c6af811",
+  "type": "import-selected-videos",
+  "status": "queued",
+  "createdAt": "2026-05-11T00:00:00.000Z",
+  "videos": [
+    {
+      "id": "/Users/example/Videos/example.mp4",
+      "fileName": "example.mp4",
+      "absolutePath": "/Users/example/Videos/example.mp4",
+      "directory": "/Users/example/Videos",
+      "durationSeconds": 123.45,
+      "width": 3840,
+      "height": 2160,
+      "displayAspectRatio": "16:9",
+      "frameRate": 29.97
+    }
+  ]
+}
+```
+
+For `import-selected-videos`, the plugin imports files into `Video Audit Exports` and does not create sequences, apply effects, or queue Adobe Media Encoder jobs.
+
+If an audited selected-file upload points at an extensionless temporary file, the backend creates a hardlink or copy under `imports/<request-id>/` with the original extension before writing the request. Premiere imports that extension-bearing bridge path.
 
 ## Status JSON
 

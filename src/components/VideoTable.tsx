@@ -676,11 +676,10 @@ export function VideoTable({
     selectedVideos.length > 0
       ? `Export to Premiere (${selectedVideos.length.toLocaleString()})`
       : 'Export to Premiere'
-  const selectedAutoCropCount = selectedVideos.filter(isAutoCropCandidate).length
-  const autoCropButtonLabel =
+  const cropOptionsButtonLabel =
     selectedVideos.length > 0
-      ? `Auto-Crop Selected (${selectedAutoCropCount.toLocaleString()})`
-      : 'Auto-Crop Selected'
+      ? `Crop Options (${selectedVideos.length.toLocaleString()})`
+      : 'Crop Options'
 
   const tableHeader = (
     <div className="table-header">
@@ -708,7 +707,7 @@ export function VideoTable({
         />
         <Button
           type="button"
-          label={autoCropButtonLabel}
+          label={cropOptionsButtonLabel}
           severity="secondary"
           disabled={!canAutoCropSelected}
           onClick={onAutoCropSelectedClick}

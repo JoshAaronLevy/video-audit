@@ -18,6 +18,7 @@ const {
 } = require("./utils/videoMigration");
 const {
   createPremiereExportRequest,
+  createPremiereImportRequest,
   getPremiereStatus,
 } = require("./utils/premiereBridge");
 
@@ -39,7 +40,13 @@ const SYSTEM_DIRECTORY_NAMES = new Set([
 const PORT = Number(process.env.PORT || 3001);
 const HOST = process.env.HOST || "127.0.0.1";
 const upload = multer({
-  dest: path.join(os.tmpdir(), "video-audit-uploads"),
+  storage: multer.diskStorage({
+    destination: path.join(os.tmpdir(), "video-audit-uploads"),
+    filename(_req, file, callback) {
+      const originalExtension = path.extname(file.originalname || "").toLowerCase();
+      callback(null, `${crypto.randomUUID()}${originalExtension}`);
+    },
+  }),
 });
 const jobs = new Map();
 const autoCropJobs = new Map();
@@ -808,6 +815,21 @@ app.post("/api/premiere/export-requests", async (req, res) => {
         error instanceof Error
           ? error.message
           : "Unable to queue Premiere export request.",
+    });
+  }
+});
+
+app.post("/api/premiere/import-requests", async (req, res) => {
+  try {
+    const result = await createPremiereImportRequest(req.body);
+    res.status(result.statusCode).json(result.payload);
+  } catch (error) {
+    res.status(500).json({
+      status: "error",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unable to queue Premiere import request.",
     });
   }
 });

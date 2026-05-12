@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Button } from 'primereact/button'
 import { Dialog } from 'primereact/dialog'
 import { Message } from 'primereact/message'
@@ -14,9 +15,12 @@ import type {
 
 type AutoCropDialogProps = {
   autoCropPercent: number | null
+  canImportToPremiere: boolean
   error: string | null
   isSubmitting: boolean
+  isPremiereImportSubmitting: boolean
   onHide: () => void
+  onImportToPremiere: () => void
   onSubmit: () => void
   progress: AutoCropProgress
   result: AutoCropResultResponse | null
@@ -47,33 +51,57 @@ const formatCount = (value: number) => value.toLocaleString()
 
 export function AutoCropDialog({
   autoCropPercent,
+  canImportToPremiere,
   error,
   isSubmitting,
+  isPremiereImportSubmitting,
   onHide,
+  onImportToPremiere,
   onSubmit,
   progress,
   result,
   selectedVideos,
   visible,
 }: AutoCropDialogProps) {
+  const [mode, setMode] = useState<'choose' | 'auto-crop'>('choose')
   const eligibleVideos = selectedVideos.filter(isAutoCropCandidate)
   const skippedVideos = selectedVideos.filter((video) => !isAutoCropCandidate(video))
   const skippedReasons = summarizeSkippedReasons(skippedVideos)
   const failedItems =
     result?.items.filter((item) => item.status === 'failed').slice(0, 5) ?? []
+  const handleHide = () => {
+    if (isSubmitting || isPremiereImportSubmitting) {
+      return
+    }
+
+    setMode('choose')
+    onHide()
+  }
+
   const footer = result ? (
     <div className="auto-crop-dialog-actions">
-      <Button type="button" label="Close" onClick={onHide} />
+      <Button type="button" label="Close" onClick={handleHide} />
     </div>
-  ) : (
+  ) : mode === 'choose' ? (
     <div className="auto-crop-dialog-actions">
       <Button
         type="button"
         label="Cancel"
         severity="secondary"
         text
+        disabled={isPremiereImportSubmitting}
+        onClick={handleHide}
+      />
+    </div>
+  ) : (
+    <div className="auto-crop-dialog-actions">
+      <Button
+        type="button"
+        label="Back"
+        severity="secondary"
+        text
         disabled={isSubmitting}
-        onClick={onHide}
+        onClick={() => setMode('choose')}
       />
       <Button
         type="button"
@@ -87,16 +115,70 @@ export function AutoCropDialog({
 
   return (
     <Dialog
-      header={result ? 'Auto-Crop Complete' : 'Auto-Crop Selected'}
+      header={result ? 'Auto-Crop Complete' : 'Crop Options'}
       visible={visible}
       modal
       draggable={false}
       className="auto-crop-dialog"
       footer={footer}
-      onHide={onHide}
+      onHide={handleHide}
     >
       <div className="auto-crop-dialog-content">
-        {!result && (
+        {!result && mode === 'choose' && (
+          <>
+            <div className="auto-crop-summary-grid">
+              <div>
+                <span>Selected</span>
+                <strong>{formatCount(selectedVideos.length)}</strong>
+              </div>
+              <div>
+                <span>Auto-crop ready</span>
+                <strong>{formatCount(eligibleVideos.length)}</strong>
+              </div>
+              <div>
+                <span>Manual review</span>
+                <strong>{formatCount(selectedVideos.length - eligibleVideos.length)}</strong>
+              </div>
+            </div>
+
+            <div className="crop-options-grid">
+              <button
+                type="button"
+                className="crop-option-card"
+                disabled={eligibleVideos.length === 0 || isPremiereImportSubmitting}
+                onClick={() => setMode('auto-crop')}
+              >
+                <span>Auto crop videos</span>
+                <strong>Create cropped copies with FFmpeg</strong>
+                <small>Source files are not modified.</small>
+              </button>
+              <button
+                type="button"
+                className="crop-option-card"
+                disabled={!canImportToPremiere || isPremiereImportSubmitting}
+                onClick={onImportToPremiere}
+              >
+                <span>Edit in Premiere Pro</span>
+                <strong>
+                  {isPremiereImportSubmitting
+                    ? 'Requesting Premiere import...'
+                    : 'Import selected files only'}
+                </strong>
+                <small>No effects, fixes, sequences, or Media Encoder queue.</small>
+              </button>
+            </div>
+
+            {!canImportToPremiere && (
+              <Message
+                severity="warn"
+                text="Premiere bridge must be ready before importing selected files."
+                role="status"
+              />
+            )}
+          </>
+        )}
+
+        {!result && mode === 'auto-crop' && (
           <>
             <div className="auto-crop-summary-grid">
               <div>
