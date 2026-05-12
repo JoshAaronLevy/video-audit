@@ -368,10 +368,10 @@ export const formatDate = (value: string) => {
     return value
   }
 
-  return date.toLocaleDateString(undefined, {
+  return date.toLocaleDateString('en-US', {
     year: 'numeric',
-    month: 'short',
-    day: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
   })
 }
 
