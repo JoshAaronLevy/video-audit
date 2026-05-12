@@ -7,7 +7,7 @@ import { FilterMatchMode } from 'primereact/api'
 import { InputText } from 'primereact/inputtext'
 import { MultiSelect } from 'primereact/multiselect'
 import { Skeleton } from 'primereact/skeleton'
-import type { VideoRow } from '../types/video'
+import type { VideoRow, VideoStatus } from '../types/video'
 import {
   formatDate,
   formatDuration,
@@ -61,6 +61,8 @@ type SelectOption<TValue> = {
   value: TValue
 }
 
+const rootDirectoryFilterValue = '__root_videos__'
+
 type ActiveVideoFilters = {
   aspectRatio: boolean | null
   directory: DirectoryFilterValue[]
@@ -68,7 +70,7 @@ type ActiveVideoFilters = {
   fileSize: FileSizeFilterValue[]
   global: string
   resolution: boolean | null
-  status: string | null
+  status: VideoStatus | null
 }
 
 type FilterDimension = keyof ActiveVideoFilters
@@ -106,7 +108,7 @@ const fileSizeFilterOptions: SelectOption<FileSizeFilterValue>[] = [
   { label: '750+ MB', value: 'very-large' },
 ]
 
-const statusFilterOptions: SelectOption<string>[] = [
+const statusFilterOptions: SelectOption<VideoStatus>[] = [
   { label: 'Pending', value: 'Pending' },
   { label: 'Queued', value: 'Queued' },
   { label: 'Completed', value: 'Completed' },
@@ -115,6 +117,14 @@ const statusFilterOptions: SelectOption<string>[] = [
 
 const formatRoundedMegabytes = (value: number | null) =>
   value === null ? '' : `${Math.round(value).toLocaleString()}MB`
+
+const formatSelectedVideoSize = (sizeMB: number) => {
+  if (sizeMB > 999) {
+    return `${formatNumber(sizeMB / 1024, 2)} GB`
+  }
+
+  return `${Math.round(sizeMB).toLocaleString()} MB`
+}
 
 const isFileSizeInRange = (
   sizeMB: number | null,
@@ -158,18 +168,20 @@ const buildDirectoryFilterOptions = (
   rows: VideoRow[],
 ): SelectOption<DirectoryFilterValue>[] => {
   const directoryCounts = new Map<DirectoryFilterValue, number>()
+  let rootVideoCount = 0
 
   rows.forEach((row) => {
     const directory = getTopLevelDirectory(row.displayDirectory)
 
     if (!directory) {
+      rootVideoCount += 1
       return
     }
 
     directoryCounts.set(directory, (directoryCounts.get(directory) ?? 0) + 1)
   })
 
-  return Array.from(directoryCounts.entries())
+  const directoryOptions = Array.from(directoryCounts.entries())
     .sort(
       ([firstDirectory, firstCount], [secondDirectory, secondCount]) =>
         secondCount - firstCount ||
@@ -179,6 +191,14 @@ const buildDirectoryFilterOptions = (
       label: `${directory} (${count.toLocaleString()})`,
       value: directory,
     }))
+
+  return [
+    {
+      label: `Root Videos (${rootVideoCount.toLocaleString()})`,
+      value: rootDirectoryFilterValue,
+    },
+    ...directoryOptions,
+  ]
 }
 
 const matchesGlobalFilter = (row: VideoRow, filter: string) => {
@@ -240,11 +260,15 @@ const directoryFilterFunction = (
     return true
   }
 
-  if (!value) {
-    return false
-  }
+  const displayDirectory = value ?? ''
 
-  return filter.some((directory) => value.includes(directory))
+  return filter.some((directory) => {
+    if (directory === rootDirectoryFilterValue) {
+      return displayDirectory === ''
+    }
+
+    return displayDirectory.includes(directory)
+  })
 }
 
 const matchesVideoFilters = (
@@ -265,7 +289,10 @@ const matchesVideoFilters = (
     row.isLowResolution === filters.resolution) &&
   (excludedDimension === 'aspectRatio' ||
     filters.aspectRatio === null ||
-    row.isWrongAspectRatio === filters.aspectRatio)
+    row.isWrongAspectRatio === filters.aspectRatio) &&
+  (excludedDimension === 'status' ||
+    filters.status === null ||
+    row.status === filters.status)
 
 const getVisibleVideoCount = (rows: VideoRow[], filters: ActiveVideoFilters) =>
   rows.filter((row) => matchesVideoFilters(row, filters)).length
@@ -460,9 +487,9 @@ const aspectRatioFilterTemplate = (
 )
 
 const statusFilterTemplate = (
-  options: FilterTemplateOptions<string | null>,
-  statusFilterOptions: SelectOption<string>[],
-  onFilterChange: (value: string | null) => void,
+  options: FilterTemplateOptions<VideoStatus | null>,
+  statusFilterOptions: SelectOption<VideoStatus>[],
+  onFilterChange: (value: VideoStatus | null) => void,
 ) => (
   <Dropdown
     value={options.value}
@@ -567,7 +594,8 @@ export function VideoTable({
   const [aspectRatioFilterValue, setAspectRatioFilterValue] = useState<
     boolean | null
   >(null)
-  const [statusFilterValue, setStatusFilterValue] = useState<string | null>(null)
+  const [statusFilterValue, setStatusFilterValue] =
+    useState<VideoStatus | null>(null)
   const activeFilters = useMemo<ActiveVideoFilters>(
     () => ({
       aspectRatio: aspectRatioFilterValue,
@@ -616,6 +644,18 @@ export function VideoTable({
     () => buildStatusFilterOptions(videoRows, activeFilters),
     [activeFilters, videoRows],
   )
+  const selectedVideosSizeMB = useMemo(
+    () =>
+      selectedVideos.reduce(
+        (totalSizeMB, video) => totalSizeMB + (video.sizeMB ?? 0),
+        0,
+      ),
+    [selectedVideos],
+  )
+  const selectedVideoCountLabel =
+    selectedVideos.length > 0
+      ? ` - ${selectedVideos.length.toLocaleString()} Selected (${formatSelectedVideoSize(selectedVideosSizeMB)})`
+      : ''
   const exportButtonLabel =
     selectedVideos.length > 0
       ? `Export to Premiere (${selectedVideos.length.toLocaleString()})`
@@ -634,7 +674,7 @@ export function VideoTable({
         </p>
         {!isLoading && (
           <p className="table-visible-count">
-            {visibleVideoCount.toLocaleString()} Videos
+            {visibleVideoCount.toLocaleString()} Videos{selectedVideoCountLabel}
           </p>
         )}
       </div>
@@ -680,9 +720,11 @@ export function VideoTable({
         className="video-table"
         selectionMode="multiple"
         selection={selectedVideos}
-        onSelectionChange={(event) =>
-          onSelectedVideosChange(event.value as VideoRow[])
-        }
+        onSelectionChange={(event) => {
+          const nextSelectedVideos = event.value as VideoRow[]
+          console.log('[VideoTable] Selected videos:', nextSelectedVideos)
+          onSelectedVideosChange(nextSelectedVideos)
+        }}
         metaKeySelection={false}
         paginator={!isLoading}
         rows={50}
@@ -819,7 +861,7 @@ export function VideoTable({
           filterMatchMode={FilterMatchMode.EQUALS}
           filterElement={(options) =>
             statusFilterTemplate(
-              options as FilterTemplateOptions<string | null>,
+              options as FilterTemplateOptions<VideoStatus | null>,
               countedStatusFilterOptions,
               setStatusFilterValue,
             )

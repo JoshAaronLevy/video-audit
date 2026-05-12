@@ -1,5 +1,7 @@
 export type VideoSource = Record<string, unknown>
 
+export type VideoStatus = 'Pending' | 'Queued' | 'Completed' | 'Dismissed'
+
 export type VideoRow = {
   displayFile: string
   displayDirectory: string
@@ -23,7 +25,7 @@ export type VideoRow = {
   isLowResolution: boolean
   isWrongAspectRatio: boolean
   reasons: string
-  status: 'Pending' | 'Queued' | 'Completed' | 'Dismissed' | null
+  status: VideoStatus
 }
 
 export type StoredVideoData = {

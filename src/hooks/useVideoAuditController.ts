@@ -48,6 +48,11 @@ const isPremierePresetAvailable = (preset: PremierePreset) =>
 const getFirstAvailablePremierePresetId = (presets: PremierePreset[]) =>
   presets.find(isPremierePresetAvailable)?.id ?? null
 
+const markRowsQueued = (rows: VideoRow[], queuedVideoPaths: Set<string>) =>
+  rows.map((row) =>
+    queuedVideoPaths.has(row.path) ? { ...row, status: 'Queued' as const } : row,
+  )
+
 export function useVideoAuditController() {
   const [initialData] = useState<StoredVideoData | null>(() =>
     loadStoredVideoData(),
@@ -600,13 +605,28 @@ export function useVideoAuditController() {
         )
       }
 
+      const queuedVideoPaths = new Set(
+        requestPayload.videos.map((video) => video.absolutePath),
+      )
+      if (videoRows) {
+        const nextRows = markRowsQueued(videoRows, queuedVideoPaths)
+        const persisted = saveVideoData({
+          fileName,
+          payload: storedPayload,
+          rows: nextRows,
+        })
+
+        setVideoRows(nextRows)
+        setIsPersisted(persisted)
+      }
+      setSelectedVideos([])
       setIsPremiereExportDialogVisible(false)
       setPremiereExportError(null)
       toast.current?.show({
         severity: 'success',
         summary: 'Export queued',
-        detail: `Premiere request ${payload.requestId} was written to the bridge.`,
-        life: 5200,
+        detail: `Videos successfully added to the Media Encoder queue. Ready to export.`,
+        life: 3000,
       })
     } catch (caughtError) {
       const message =

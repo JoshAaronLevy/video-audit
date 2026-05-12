@@ -5,10 +5,17 @@ import type {
   StoredVideoData,
   VideoRow,
   VideoSource,
+  VideoStatus,
 } from '../types/video'
 
 const storageKey = 'video-audit:videos:v1'
 const videoExtensions = new Set(['.mp4', '.m4v', '.mov'])
+const videoStatuses = new Set<VideoStatus>([
+  'Pending',
+  'Queued',
+  'Completed',
+  'Dismissed',
+])
 
 export const apiBaseUrl = 'http://127.0.0.1:3001'
 
@@ -58,6 +65,14 @@ const readBoolean = (source: VideoSource, key: keyof VideoRow) => {
   }
 
   return typeof value === 'boolean' ? value : Boolean(value)
+}
+
+const readVideoStatus = (source: VideoSource): VideoStatus => {
+  const value = source.status
+
+  return typeof value === 'string' && videoStatuses.has(value as VideoStatus)
+    ? (value as VideoStatus)
+    : 'Pending'
 }
 
 const getPathAfterEdited = (path: string) => {
@@ -129,6 +144,7 @@ export const toVideoRow = (source: VideoSource): VideoRow => ({
   isLowResolution: readBoolean(source, 'isLowResolution'),
   isWrongAspectRatio: readBoolean(source, 'isWrongAspectRatio'),
   reasons: readString(source, 'reasons'),
+  status: readVideoStatus(source),
 })
 
 export const formatNumber = (value: number | null, maximumFractionDigits = 2) =>
