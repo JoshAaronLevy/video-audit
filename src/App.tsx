@@ -83,6 +83,7 @@ function App() {
     premierePresets,
     premiereStatus,
     selectedPremierePresetId,
+    selectedAutoCropVideos,
     selectedVideos,
     selectedFilesInputRef,
     setIncludeLowResolutionAnalysis,
@@ -201,7 +202,7 @@ function App() {
         onSubmit={handleSubmitAutoCrop}
         progress={autoCropProgress}
         result={autoCropResult}
-        selectedVideos={selectedVideos}
+        selectedVideos={selectedAutoCropVideos}
         visible={isAutoCropDialogVisible}
       />
 

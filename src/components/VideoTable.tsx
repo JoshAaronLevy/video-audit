@@ -668,6 +668,10 @@ export function VideoTable({
       ),
     [selectedVideos],
   )
+  const selectedAutoCropVideos = useMemo(
+    () => selectedVideos.filter(isAutoCropCandidate),
+    [selectedVideos],
+  )
   const selectedVideoCountLabel =
     selectedVideos.length > 0
       ? ` - ${selectedVideos.length.toLocaleString()} Selected (${formatSelectedVideoSize(selectedVideosSizeMB)})`
@@ -677,8 +681,8 @@ export function VideoTable({
       ? `Export to Premiere (${selectedVideos.length.toLocaleString()})`
       : 'Export to Premiere'
   const cropOptionsButtonLabel =
-    selectedVideos.length > 0
-      ? `Crop Options (${selectedVideos.length.toLocaleString()})`
+    selectedAutoCropVideos.length > 0
+      ? `Crop Options (${selectedAutoCropVideos.length.toLocaleString()})`
       : 'Crop Options'
 
   const tableHeader = (

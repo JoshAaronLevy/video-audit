@@ -191,7 +191,7 @@
 }
 
 .premiere-status-section {
-  width: min(1180px, 90vw);
+  width: 100%;
   justify-self: center;
 }
 
@@ -200,14 +200,16 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 0;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.78);
+  background: #FFFFFF;
   text-align: left;
 }
 
 .premiere-status-message {
+  display: flex;
+  width: 100%;
   margin: 0;
 }
 

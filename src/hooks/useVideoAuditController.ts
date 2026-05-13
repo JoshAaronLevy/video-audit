@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent } from 'react'
 import { Toast } from 'primereact/toast'
 import {
@@ -165,6 +165,10 @@ export function useVideoAuditController() {
   const [isPremiereStatusLoading, setIsPremiereStatusLoading] = useState(false)
   const [premierePresets, setPremierePresets] = useState<PremierePreset[]>([])
   const [selectedVideos, setSelectedVideos] = useState<VideoRow[]>([])
+  const selectedAutoCropVideos = useMemo(
+    () => selectedVideos.filter(isAutoCropCandidate),
+    [selectedVideos],
+  )
   const [isPremiereExportDialogVisible, setIsPremiereExportDialogVisible] =
     useState(false)
   const [selectedPremierePresetId, setSelectedPremierePresetId] = useState<
@@ -1061,7 +1065,7 @@ export function useVideoAuditController() {
 
   const handleOpenAutoCropDialog = () => {
     if (
-      selectedVideos.every((video) => !isAutoCropCandidate(video)) ||
+      selectedAutoCropVideos.length === 0 ||
       isAuditActive ||
       isTableLoading
     ) {
@@ -1127,9 +1131,7 @@ export function useVideoAuditController() {
   }
 
   const handleSubmitAutoCrop = async () => {
-    const eligibleVideos = selectedVideos.filter(isAutoCropCandidate)
-
-    if (eligibleVideos.length === 0) {
+    if (selectedAutoCropVideos.length === 0) {
       setAutoCropError('Select at least one auto-crop candidate.')
       return
     }
@@ -1142,7 +1144,7 @@ export function useVideoAuditController() {
       ...initialAutoCropProgress,
       status: 'starting',
       phase: 'starting',
-      totalFiles: eligibleVideos.length,
+      totalFiles: selectedAutoCropVideos.length,
       message: 'Starting auto-crop...',
     })
 
@@ -1150,7 +1152,7 @@ export function useVideoAuditController() {
       const response = await fetch(`${apiBaseUrl}/api/adjustments/auto-crop`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ videos: eligibleVideos }),
+        body: JSON.stringify({ videos: selectedAutoCropVideos }),
       })
       const payload = (await response.json()) as AutoCropStartResponse
 
@@ -1167,7 +1169,7 @@ export function useVideoAuditController() {
         phase: 'cropping',
         outputRootDir: payload.outputRootDir ?? null,
         outputDir: payload.outputDir ?? null,
-        totalFiles: eligibleVideos.length,
+        totalFiles: selectedAutoCropVideos.length,
         message: 'Cropping selected videos...',
       })
 
@@ -1263,7 +1265,7 @@ export function useVideoAuditController() {
   }
 
   const handleSubmitPremiereImport = async () => {
-    if (selectedVideos.length === 0) {
+    if (selectedAutoCropVideos.length === 0) {
       setAutoCropError('Select at least one video to import into Premiere.')
       return
     }
@@ -1274,7 +1276,7 @@ export function useVideoAuditController() {
     }
 
     const requestPayload: PremiereImportRequestPayload = {
-      videos: selectedVideos.map(toPremiereExportVideo),
+      videos: selectedAutoCropVideos.map(toPremiereExportVideo),
     }
 
     setIsPremiereImportSubmitting(true)
@@ -1529,13 +1531,13 @@ export function useVideoAuditController() {
     !isAuditActive &&
     !isTableLoading
   const canAutoCropSelected =
-    selectedVideos.length > 0 &&
+    selectedAutoCropVideos.length > 0 &&
     !isAuditActive &&
     !isTableLoading &&
     !isAutoCropSubmitting &&
     !isPremiereImportSubmitting
   const canImportSelectedToPremiere =
-    selectedVideos.length > 0 &&
+    selectedAutoCropVideos.length > 0 &&
     premiereStatus?.status === 'ready' &&
     !isAuditActive &&
     !isTableLoading &&
@@ -1610,6 +1612,7 @@ export function useVideoAuditController() {
     premierePresets,
     premiereStatus,
     selectedPremierePresetId,
+    selectedAutoCropVideos,
     selectedVideos,
     selectedFilesInputRef,
     canRefresh: Boolean(storedPayload),
