@@ -71,6 +71,30 @@ export type VideoThumbnail = {
   error?: string
 }
 
+export type VideoPreviewFrame = {
+  index: number
+  timestampSeconds: number
+  timestampLabel: string
+  batchId: string
+  thumbnail: VideoThumbnail
+}
+
+export type VideoPreviewFrameResult = {
+  durationSeconds: number | null
+  maxPreviewFrameCount: number
+  mode: 'additional' | 'fresh'
+  batchId: string
+  summary: {
+    requested: number
+    existing: number
+    generated: number
+    cached: number
+    failed: number
+    returned: number
+  }
+  frames: VideoPreviewFrame[]
+}
+
 export type VideoRow = {
   displayFile: string
   displayDirectory: string
@@ -97,8 +121,12 @@ export type VideoRow = {
   isWrongAspectRatio: boolean
   reasons: string
   status: VideoStatus
+  visible: boolean
   adjustments?: VideoAdjustments
   thumbnail?: VideoThumbnail
+  previewFrames?: VideoPreviewFrame[]
+  previewFrameBatchId?: string
+  maxPreviewFrameCount?: number
 }
 
 export type StoredVideoData = {
@@ -248,7 +276,7 @@ export type AuditProgressPayload = Partial<Omit<AuditProgress, 'status'>> & {
 
 export type AutoCropProgress = {
   jobId: string | null
-  status: 'idle' | 'starting' | 'running' | 'complete' | 'error'
+  status: 'idle' | 'starting' | 'running' | 'complete' | 'error' | 'canceled'
   phase: string | null
   outputRootDir: string | null
   outputDir: string | null

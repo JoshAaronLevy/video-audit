@@ -19,6 +19,8 @@ type AutoCropDialogProps = {
   error: string | null
   isSubmitting: boolean
   isPremiereImportSubmitting: boolean
+  initialMode?: 'choose' | 'auto-crop'
+  onCancel: () => void
   onHide: () => void
   onImportToPremiere: () => void
   onSubmit: () => void
@@ -53,8 +55,10 @@ export function AutoCropDialog({
   autoCropPercent,
   canImportToPremiere,
   error,
+  initialMode = 'choose',
   isSubmitting,
   isPremiereImportSubmitting,
+  onCancel,
   onHide,
   onImportToPremiere,
   onSubmit,
@@ -63,7 +67,10 @@ export function AutoCropDialog({
   selectedVideos,
   visible,
 }: AutoCropDialogProps) {
-  const [mode, setMode] = useState<'choose' | 'auto-crop'>('choose')
+  const [manualMode, setManualMode] = useState<'choose' | 'auto-crop' | null>(
+    null,
+  )
+  const mode = manualMode ?? initialMode
   const eligibleVideos = selectedVideos.filter(isAutoCropCandidate)
   const skippedVideos = selectedVideos.filter(
     (video) => !isAutoCropCandidate(video),
@@ -79,16 +86,18 @@ export function AutoCropDialog({
   const skippedReasons = summarizeSkippedReasons(skippedVideos)
   const failedItems =
     result?.items.filter((item) => item.status === 'failed').slice(0, 5) ?? []
+  const isCanceled = progress.status === 'canceled'
+
   const handleHide = () => {
     if (isSubmitting || isPremiereImportSubmitting) {
       return
     }
 
-    setMode('choose')
+    setManualMode(null)
     onHide()
   }
 
-  const footer = result ? (
+  const footer = result || isCanceled ? (
     <div className="auto-crop-dialog-actions">
       <Button type="button" label="Close" onClick={handleHide} />
     </div>
@@ -107,11 +116,10 @@ export function AutoCropDialog({
     <div className="auto-crop-dialog-actions">
       <Button
         type="button"
-        label="Back"
+        label={isSubmitting ? 'Cancel Auto-Crop' : 'Back'}
         severity="secondary"
         text
-        disabled={isSubmitting}
-        onClick={() => setMode('choose')}
+        onClick={isSubmitting ? onCancel : () => setManualMode('choose')}
       />
       <Button
         type="button"
@@ -170,7 +178,7 @@ export function AutoCropDialog({
                 disabled={
                   eligibleVideos.length === 0 || isPremiereImportSubmitting
                 }
-                onClick={() => setMode('auto-crop')}
+                onClick={() => setManualMode('auto-crop')}
               >
                 <span>Auto crop videos</span>
                 <strong>Create cropped copies with FFmpeg</strong>
@@ -275,6 +283,14 @@ export function AutoCropDialog({
                   <span>{formatCount(progress.errorCount)} failed</span>
                 </div>
               </div>
+            )}
+
+            {isCanceled && (
+              <Message
+                severity="info"
+                text="Auto-crop was canceled. The current FFmpeg process was stopped."
+                role="status"
+              />
             )}
           </>
         )}

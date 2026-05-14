@@ -5,9 +5,12 @@ import { Message } from 'primereact/message'
 import type { PremierePreset } from '../types/premiere'
 
 type PremiereExportDialogProps = {
+  canImportToPremiere: boolean
   error: string | null
+  isImportSubmitting: boolean
   isSubmitting: boolean
   onHide: () => void
+  onImportToPremiere: () => void
   onPresetChange: (presetId: string | null) => void
   onSubmit: () => void
   presets: PremierePreset[]
@@ -17,9 +20,12 @@ type PremiereExportDialogProps = {
 }
 
 export function PremiereExportDialog({
+  canImportToPremiere,
   error,
+  isImportSubmitting,
   isSubmitting,
   onHide,
+  onImportToPremiere,
   onPresetChange,
   onSubmit,
   presets,
@@ -41,13 +47,27 @@ export function PremiereExportDialog({
         label="Cancel"
         severity="secondary"
         text
-        disabled={isSubmitting}
+        disabled={isSubmitting || isImportSubmitting}
         onClick={onHide}
       />
       <Button
         type="button"
+        label="Edit in Premiere Pro"
+        severity="secondary"
+        outlined
+        disabled={!canImportToPremiere || isSubmitting || isImportSubmitting}
+        loading={isImportSubmitting}
+        onClick={onImportToPremiere}
+      />
+      <Button
+        type="button"
         label="Queue export"
-        disabled={!selectedPresetId || !hasAvailablePresets || isSubmitting}
+        disabled={
+          !selectedPresetId ||
+          !hasAvailablePresets ||
+          isSubmitting ||
+          isImportSubmitting
+        }
         loading={isSubmitting}
         onClick={onSubmit}
       />
@@ -77,8 +97,13 @@ export function PremiereExportDialog({
           optionDisabled="disabled"
           placeholder="Choose export preset"
           className="premiere-export-preset"
-          disabled={isSubmitting}
+          disabled={isSubmitting || isImportSubmitting}
           onChange={(event) => onPresetChange(event.value ?? null)}
+        />
+        <Message
+          severity="info"
+          text="Edit in Premiere Pro imports the selected files without fixes, sequences, exports, or the Media Encoder queue."
+          role="status"
         />
         {!hasAvailablePresets && (
           <Message

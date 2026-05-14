@@ -51,6 +51,19 @@ const videoStatuses = new Set<VideoStatus>([
 
 export const apiBaseUrl = 'http://127.0.0.1:3001'
 
+export function getMaxPreviewFrameCount(durationSeconds?: number | null) {
+  const duration = Number(durationSeconds)
+
+  if (!Number.isFinite(duration) || duration <= 0) return 4
+  if (duration <= 30) return 4
+  if (duration <= 120) return 6
+  if (duration <= 600) return 10
+  if (duration <= 1800) return 14
+  if (duration <= 2700) return 18
+  if (duration <= 3600) return 22
+  return 26
+}
+
 export const initialAuditProgress: AuditProgress = {
   jobId: null,
   status: 'idle',
@@ -149,6 +162,20 @@ const readVideoStatus = (source: VideoSource): VideoStatus => {
   return typeof value === 'string' && videoStatuses.has(value as VideoStatus)
     ? (value as VideoStatus)
     : 'Pending'
+}
+
+const readVisible = (source: VideoSource) => {
+  const value = source.visible
+
+  if (value === 'false') {
+    return false
+  }
+
+  if (value === 'true') {
+    return true
+  }
+
+  return typeof value === 'boolean' ? value : true
 }
 
 const readAdjustments = (source: VideoSource): VideoAdjustments | undefined => {
@@ -277,6 +304,7 @@ export const toVideoRow = (source: VideoSource): VideoRow => ({
   isWrongAspectRatio: readBoolean(source, 'isWrongAspectRatio'),
   reasons: readString(source, 'reasons'),
   status: readVideoStatus(source),
+  visible: readVisible(source),
   adjustments: readAdjustments(source),
   thumbnail: readThumbnail(source),
 })
@@ -303,7 +331,12 @@ const hasVisibleCropArea = (blackBorder: BlackBorderAdjustment): boolean => {
   )
 }
 
-export type CropReviewStatus = 'Yes' | 'No' | 'Uncertain' | 'Errored'
+export type CropReviewStatus = 'Auto' | 'Review' | 'No' | 'Uncertain' | 'Error'
+
+export type CropReviewDisplay = {
+  value: CropReviewStatus
+  detail: string
+}
 
 export const getBlackBorderCropStatus = (
   adjustments?: VideoAdjustments,
@@ -316,14 +349,15 @@ export const getBlackBorderCropStatus = (
 
   switch (blackBorder.classification) {
     case 'analysis_error':
-      return 'Errored'
+      return 'Error'
     case 'uncertain':
       return 'Uncertain'
     case 'nested_borders':
+      return isBlackBorderAutoCropCandidate(adjustments) ? 'Auto' : 'Review'
     case 'asymmetric_border':
     case 'pillarboxed':
     case 'letterboxed':
-      return 'Yes'
+      return 'Review'
     case 'clean':
       return 'No'
   }
@@ -345,6 +379,68 @@ export const isBlackBorderAutoCropCandidate = (
 
 export const isAutoCropCandidate = (row: VideoRow): boolean => {
   return isBlackBorderAutoCropCandidate(row.adjustments)
+}
+
+export const getBlackBorderCropDisplay = (
+  row: VideoRow,
+): CropReviewDisplay => {
+  const blackBorder = getBlackBorder(row)
+  const value = getBlackBorderCropStatus(row.adjustments)
+  const recommendationReason = blackBorder?.recommendedFix?.reason
+
+  if (!blackBorder?.analyzed) {
+    return {
+      value,
+      detail: 'Black-border analysis has not run for this video.',
+    }
+  }
+
+  if (value === 'Auto') {
+    return {
+      value,
+      detail:
+        recommendationReason ??
+        'High-confidence nested borders were detected. Auto-crop can create a cropped copy.',
+    }
+  }
+
+  if (value === 'Review') {
+    const skipReason = getAutoCropSkipReason(row)
+
+    return {
+      value,
+      detail: [
+        recommendationReason ??
+          'Border analysis found a crop review candidate, but it is not a high-confidence auto-crop candidate.',
+        skipReason ? `Auto-crop skips this row: ${skipReason}.` : null,
+      ]
+        .filter(Boolean)
+        .join(' '),
+    }
+  }
+
+  if (value === 'Uncertain') {
+    return {
+      value,
+      detail:
+        recommendationReason ??
+        'Black-border analysis was inconclusive. Review this video manually before cropping.',
+    }
+  }
+
+  if (value === 'Error') {
+    return {
+      value,
+      detail:
+        recommendationReason ??
+        'Black-border analysis errored for this video. Auto-crop skips errored rows.',
+    }
+  }
+
+  return {
+    value,
+    detail: 'No crop review is needed based on the black-border analysis.',
+  }
 }
 
 export const getBlackBorderLabel = (row: VideoRow): string => {

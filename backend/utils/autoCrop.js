@@ -224,8 +224,29 @@ function buildFfmpegFilter({ crop, target }) {
   return `crop=${crop.width}:${crop.height}:${crop.x}:${crop.y},scale=${target.width}:${target.height}:flags=lanczos`;
 }
 
-function runFfmpegCrop({ inputPath, outputPath, filter }) {
+function createAutoCropCancelError() {
+  const error = new Error("Auto-crop canceled.");
+  error.name = "AbortError";
+  return error;
+}
+
+function assertNotCanceled(signal) {
+  if (signal?.aborted) {
+    throw createAutoCropCancelError();
+  }
+}
+
+function runFfmpegCrop({ inputPath, outputPath, filter, signal }) {
   return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve({
+        ok: false,
+        canceled: true,
+        error: "Auto-crop canceled.",
+      });
+      return;
+    }
+
     const args = [
       "-y",
       "-i",
@@ -245,28 +266,63 @@ function runFfmpegCrop({ inputPath, outputPath, filter }) {
 
     const child = spawn("ffmpeg", args);
     let stderr = "";
+    let didCancel = false;
+    let didSettle = false;
+    let forceKillTimeout = null;
+
+    const settle = (result) => {
+      if (didSettle) return;
+
+      didSettle = true;
+      if (forceKillTimeout) {
+        clearTimeout(forceKillTimeout);
+      }
+      signal?.removeEventListener("abort", handleAbort);
+      resolve(result);
+    };
+
+    const handleAbort = () => {
+      didCancel = true;
+      child.kill("SIGTERM");
+      forceKillTimeout = setTimeout(() => {
+        if (!didSettle) {
+          child.kill("SIGKILL");
+        }
+      }, 5000);
+    };
+
+    signal?.addEventListener("abort", handleAbort, { once: true });
 
     child.stderr.on("data", (data) => {
       stderr += data.toString();
     });
 
     child.on("error", (error) => {
-      resolve({
+      settle({
         ok: false,
         error: error.message,
       });
     });
 
     child.on("close", (code) => {
+      if (didCancel || signal?.aborted) {
+        settle({
+          ok: false,
+          canceled: true,
+          error: "Auto-crop canceled.",
+        });
+        return;
+      }
+
       if (code !== 0) {
-        resolve({
+        settle({
           ok: false,
           error: stderr || `ffmpeg exited with code ${code}`,
         });
         return;
       }
 
-      resolve({ ok: true });
+      settle({ ok: true });
     });
   });
 }
@@ -348,7 +404,9 @@ function createSkippedItem({ video, reason, startedAt }) {
   };
 }
 
-async function runAutoCrop({ videos, outputRootDir, onProgress }) {
+async function runAutoCrop({ videos, outputRootDir, onProgress, signal }) {
+  assertNotCanceled(signal);
+
   const outputDir = outputRootDir;
   await fs.mkdir(outputDir, { recursive: true });
 
@@ -394,6 +452,8 @@ async function runAutoCrop({ videos, outputRootDir, onProgress }) {
   });
 
   for (let index = 0; index < videos.length; index++) {
+    assertNotCanceled(signal);
+
     const video = videos[index];
     const startedAt = nowIsoString();
 
@@ -476,7 +536,12 @@ async function runAutoCrop({ videos, outputRootDir, onProgress }) {
       inputPath: video.path,
       outputPath,
       filter: ffmpegFilter,
+      signal,
     });
+
+    if (result.canceled) {
+      throw createAutoCropCancelError();
+    }
 
     item.completedAt = nowIsoString();
 

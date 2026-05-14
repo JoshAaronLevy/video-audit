@@ -1,0 +1,224 @@
+- main [ref=e3]:
+  - region [ref=e17]:
+    - paragraph [ref=e18]: Video Audit
+  - region "Loaded videos" [ref=e19]:
+    - generic [ref=e20]:
+      - generic [ref=e22]:
+        - generic [ref=e23]:
+          - heading "Videos" [level=2] [ref=e24]
+          - paragraph [ref=e25]: 2 flagged videos found in Playwright seeded scan
+          - paragraph [ref=e282]: 2 Videos
+        - generic [ref=e26]:
+          - generic [ref=e27]:
+            - checkbox "Show thumbnails" [checked] [ref=e283]:
+              - switch "Show thumbnails" [checked] [ref=e284] [cursor=pointer]
+            - generic [ref=e28]: Show thumbnails
+          - button "Generate Thumbnails" [ref=e286] [cursor=pointer]:
+            - generic [ref=e287]: Generate Thumbnails
+          - button "Export to Premiere" [disabled]:
+            - generic: Export to Premiere
+          - button "Crop Options" [disabled]:
+            - generic: Crop Options
+          - button "Migrate New Edits" [ref=e288] [cursor=pointer]:
+            - generic [ref=e289]: Migrate New Edits
+          - button "Remove Selected Videos" [disabled]:
+            - generic: Remove Selected Videos
+          - button "Restore Removed Videos" [disabled]:
+            - generic: Restore Removed Videos
+          - textbox "Search videos" [ref=e292]
+          - button "Clear cache" [ref=e29] [cursor=pointer]:
+            - generic [ref=e30]: Clear cache
+      - table [ref=e32]:
+        - rowgroup [ref=e33]:
+          - row "File Name Type File Size Duration Modified Resolution Aspect Ratio Crop Status Actions" [ref=e34]:
+            - columnheader [ref=e35]
+            - columnheader "File Name" [ref=e36] [cursor=pointer]:
+              - generic [ref=e37]:
+                - generic [ref=e38]: File Name
+                - img [ref=e294]
+            - columnheader "Type" [ref=e39] [cursor=pointer]:
+              - generic [ref=e40]:
+                - generic [ref=e41]: Type
+                - img [ref=e300]
+            - columnheader "File Size" [ref=e42] [cursor=pointer]:
+              - generic [ref=e43]:
+                - generic [ref=e44]: File Size
+                - img [ref=e306]
+            - columnheader "Duration" [ref=e45] [cursor=pointer]:
+              - generic [ref=e46]:
+                - generic [ref=e47]: Duration
+                - img [ref=e312]
+            - columnheader "Modified" [ref=e48] [cursor=pointer]:
+              - generic [ref=e49]:
+                - generic [ref=e50]: Modified
+                - img [ref=e318]
+            - columnheader "Resolution" [ref=e51] [cursor=pointer]:
+              - generic [ref=e52]:
+                - generic [ref=e53]: Resolution
+                - img [ref=e324]
+            - columnheader "Aspect Ratio" [ref=e54] [cursor=pointer]:
+              - generic [ref=e55]:
+                - generic [ref=e56]: Aspect Ratio
+                - img [ref=e330]
+            - columnheader "Crop" [ref=e57]:
+              - generic [ref=e59]: Crop
+            - columnheader "Status" [ref=e60] [cursor=pointer]:
+              - generic [ref=e61]:
+                - generic [ref=e62]: Status
+                - img [ref=e336]
+            - columnheader "Actions" [ref=e63]:
+              - generic [ref=e65]: Actions
+          - row "All items unselected Directory Type File Size Duration Resolution Resolution Resolution Aspect Aspect Aspect Crop Status Status Status" [ref=e341]:
+            - columnheader "All items unselected" [ref=e67]:
+              - checkbox "All items unselected" [ref=e68]:
+                - checkbox "All items unselected" [ref=e69] [cursor=pointer]
+            - columnheader "Directory" [ref=e342]:
+              - generic [ref=e345] [cursor=pointer]:
+                - generic:
+                  - combobox
+                - generic [ref=e347]: Directory
+                - img [ref=e349]
+            - columnheader "Type" [ref=e351]:
+              - generic [ref=e354] [cursor=pointer]:
+                - generic:
+                  - combobox
+                - generic [ref=e356]: Type
+                - img [ref=e358]
+            - columnheader "File Size" [ref=e360]:
+              - generic [ref=e363] [cursor=pointer]:
+                - generic:
+                  - combobox
+                - generic [ref=e365]: File Size
+                - img [ref=e367]
+            - columnheader "Duration" [ref=e369]:
+              - generic [ref=e372] [cursor=pointer]:
+                - generic:
+                  - combobox
+                - generic [ref=e374]: Duration
+                - img [ref=e376]
+            - columnheader [ref=e75]
+            - columnheader "Resolution Resolution Resolution" [ref=e378]:
+              - generic [ref=e381] [cursor=pointer]:
+                - generic:
+                  - textbox
+                - generic:
+                  - combobox:
+                    - option "Resolution" [selected]
+                - generic [ref=e382]: Resolution
+                - button "Resolution" [ref=e383]:
+                  - img [ref=e384]
+            - columnheader "Aspect Aspect Aspect" [ref=e386]:
+              - generic [ref=e389] [cursor=pointer]:
+                - generic:
+                  - textbox
+                - generic:
+                  - combobox:
+                    - option "Aspect" [selected]
+                - generic [ref=e390]: Aspect
+                - button "Aspect" [ref=e391]:
+                  - img [ref=e392]
+            - columnheader "Crop" [ref=e394]:
+              - generic [ref=e397] [cursor=pointer]:
+                - generic:
+                  - combobox
+                - generic [ref=e399]: Crop
+                - img [ref=e401]
+            - columnheader "Status Status Status" [ref=e403]:
+              - generic [ref=e406] [cursor=pointer]:
+                - generic:
+                  - textbox
+                - generic:
+                  - combobox:
+                    - option "Status" [selected]
+                - generic [ref=e407]: Status
+                - button "Status" [ref=e408]:
+                  - img [ref=e409]
+            - columnheader [ref=e80]
+        - rowgroup [ref=e81]:
+          - row "Row Selected /tmp/video-audit/low-res.mov No thumbnail ../low-res MOV 100MB 1:30 05/13/2026 1280x720 16:9 No Pending View details Export to Premiere Crop options Remove from table" [ref=e411] [cursor=pointer]:
+            - cell "Row Selected /tmp/video-audit/low-res.mov" [ref=e412]:
+              - checkbox "Row Selected /tmp/video-audit/low-res.mov" [ref=e413]:
+                - checkbox "Row Selected /tmp/video-audit/low-res.mov" [ref=e414]
+            - cell "No thumbnail ../low-res" [ref=e416]:
+              - generic [ref=e417]:
+                - generic "No thumbnail" [ref=e418]
+                - generic [ref=e420]: ../low-res
+            - cell "MOV" [ref=e421]:
+              - generic [ref=e423]: MOV
+            - cell "100MB" [ref=e424]:
+              - generic [ref=e426]: 100MB
+            - cell "1:30" [ref=e427]:
+              - generic [ref=e429]: 1:30
+            - cell "05/13/2026" [ref=e430]:
+              - generic [ref=e432]: 05/13/2026
+            - cell "1280x720" [ref=e433]:
+              - generic [ref=e435]: 1280x720
+            - cell "16:9" [ref=e436]:
+              - generic [ref=e438]: 16:9
+            - cell "No" [ref=e439]:
+              - generic [ref=e441]: "No"
+            - cell "Pending" [ref=e442]:
+              - generic [ref=e444]: Pending
+            - cell "View details Export to Premiere Crop options Remove from table" [ref=e445]:
+              - generic [ref=e446]:
+                - button "View details" [ref=e447]:
+                  - img [ref=e448]
+                - button "Export to Premiere" [disabled]:
+                  - img
+                - button "Crop options" [disabled]:
+                  - img
+                - button "Remove from table" [ref=e450]:
+                  - img [ref=e451]
+          - row "Row Selected /tmp/video-audit/hidden.mp4 No thumbnail ../hidden MP4 200MB 2:00 05/13/2026 1920x1080 16:9 No Pending View details Export to Premiere Crop options Remove from table" [ref=e461] [cursor=pointer]:
+            - cell "Row Selected /tmp/video-audit/hidden.mp4" [ref=e462]:
+              - checkbox "Row Selected /tmp/video-audit/hidden.mp4" [ref=e463]:
+                - checkbox "Row Selected /tmp/video-audit/hidden.mp4" [ref=e464]
+            - cell "No thumbnail ../hidden" [ref=e466]:
+              - generic [ref=e467]:
+                - generic "No thumbnail" [ref=e468]
+                - generic [ref=e470]: ../hidden
+            - cell "MP4" [ref=e471]:
+              - generic [ref=e473]: MP4
+            - cell "200MB" [ref=e474]:
+              - generic [ref=e476]: 200MB
+            - cell "2:00" [ref=e477]:
+              - generic [ref=e479]: 2:00
+            - cell "05/13/2026" [ref=e480]:
+              - generic [ref=e482]: 05/13/2026
+            - cell "1920x1080" [ref=e483]:
+              - generic [ref=e485]: 1920x1080
+            - cell "16:9" [ref=e486]:
+              - generic [ref=e488]: 16:9
+            - cell "No" [ref=e489]:
+              - generic [ref=e491]: "No"
+            - cell "Pending" [ref=e492]:
+              - generic [ref=e494]: Pending
+            - cell "View details Export to Premiere Crop options Remove from table" [ref=e495]:
+              - generic [ref=e496]:
+                - button "View details" [ref=e497]:
+                  - img [ref=e498]
+                - button "Export to Premiere" [disabled]:
+                  - img
+                - button "Crop options" [disabled]:
+                  - img
+                - button "Remove from table" [ref=e500]:
+                  - img [ref=e501]
+      - generic [ref=e453]:
+        - button "First Page" [disabled]:
+          - img
+        - button "Previous Page" [disabled]:
+          - img
+        - button "Page 1" [ref=e455] [cursor=pointer]: "1"
+        - button "Next Page" [disabled]:
+          - img
+        - button "Last Page" [disabled]:
+          - img
+        - generic [ref=e456] [cursor=pointer]:
+          - generic:
+            - textbox "Jump to Page Dropdown": "50"
+          - generic:
+            - combobox:
+              - option "50" [selected]
+          - generic [ref=e457]: "50"
+          - button "Choose" [ref=e458]:
+            - img [ref=e459]

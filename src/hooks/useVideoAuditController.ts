@@ -223,12 +223,24 @@ export function useVideoAuditController() {
   const [selectedPremierePresetId, setSelectedPremierePresetId] = useState<
     string | null
   >(null)
+  const [premiereExportDialogVideos, setPremiereExportDialogVideos] = useState<
+    VideoRow[]
+  >([])
+  const [premiereExportDialogSource, setPremiereExportDialogSource] = useState<
+    'bulk' | 'row'
+  >('bulk')
   const [premiereExportError, setPremiereExportError] = useState<string | null>(
     null,
   )
   const [isPremiereExportSubmitting, setIsPremiereExportSubmitting] =
     useState(false)
   const [isAutoCropDialogVisible, setIsAutoCropDialogVisible] = useState(false)
+  const [autoCropDialogVideos, setAutoCropDialogVideos] = useState<
+    VideoRow[] | null
+  >(null)
+  const [autoCropDialogInitialMode, setAutoCropDialogInitialMode] = useState<
+    'choose' | 'auto-crop'
+  >('choose')
   const [isAutoCropSubmitting, setIsAutoCropSubmitting] = useState(false)
   const [autoCropProgress, setAutoCropProgress] =
     useState<AutoCropProgress>(initialAutoCropProgress)
@@ -1002,6 +1014,78 @@ export function useVideoAuditController() {
     setThumbnailError(null)
   }
 
+  const persistVideoRows = (nextRows: VideoRow[]) => {
+    void saveVideoData({
+      fileName,
+      payload: storedPayload,
+      rows: nextRows,
+    }).then(setIsPersisted)
+  }
+
+  const handleRemoveVideosFromTable = (videos: VideoRow[]) => {
+    if (!videoRows || videos.length === 0) {
+      return
+    }
+
+    const removedVideoPaths = new Set(videos.map((video) => video.path))
+    let removedCount = 0
+    const nextRows = videoRows.map((row) => {
+      if (!removedVideoPaths.has(row.path) || row.visible === false) {
+        return row
+      }
+
+      removedCount += 1
+      return { ...row, visible: false }
+    })
+
+    if (removedCount === 0) {
+      return
+    }
+
+    setVideoRows(nextRows)
+    setSelectedVideos((currentSelectedVideos) =>
+      currentSelectedVideos.filter((video) => !removedVideoPaths.has(video.path)),
+    )
+    persistVideoRows(nextRows)
+    toast.current?.show({
+      severity: 'success',
+      summary: 'Videos removed',
+      detail:
+        removedCount === 1
+          ? '1 video was removed from the table.'
+          : `${removedCount.toLocaleString()} videos were removed from the table.`,
+      life: 3000,
+    })
+  }
+
+  const handleRestoreRemovedVideos = () => {
+    if (!videoRows) {
+      return
+    }
+
+    const removedCount = videoRows.filter((row) => row.visible === false).length
+
+    if (removedCount === 0) {
+      return
+    }
+
+    const nextRows = videoRows.map((row) =>
+      row.visible === false ? { ...row, visible: true } : row,
+    )
+
+    setVideoRows(nextRows)
+    persistVideoRows(nextRows)
+    toast.current?.show({
+      severity: 'success',
+      summary: 'Videos restored',
+      detail:
+        removedCount === 1
+          ? '1 removed video was restored.'
+          : `${removedCount.toLocaleString()} removed videos were restored.`,
+      life: 3000,
+    })
+  }
+
   const handleOpenGenerateThumbnails = (tableRows: VideoRow[]) => {
     if (tableRows.length === 0) {
       const message = 'No videos are available for thumbnail generation.'
@@ -1046,14 +1130,6 @@ export function useVideoAuditController() {
       ? selectedVideos
       : thumbnailCandidateRows
 
-  const persistThumbnailRows = (nextRows: VideoRow[]) => {
-    void saveVideoData({
-      fileName,
-      payload: storedPayload,
-      rows: nextRows,
-    }).then(setIsPersisted)
-  }
-
   const applyThumbnailResult = (result: ThumbnailResultResponse) => {
     setVideoRows((currentRows) => {
       if (!currentRows) {
@@ -1061,7 +1137,7 @@ export function useVideoAuditController() {
       }
 
       const nextRows = mergeThumbnailItems(currentRows, result.items)
-      persistThumbnailRows(nextRows)
+      persistVideoRows(nextRows)
       return nextRows
     })
     setSelectedVideos((currentSelectedVideos) =>
@@ -1420,9 +1496,12 @@ export function useVideoAuditController() {
     await handleStartMigrationScan(selectedFolderPath)
   }
 
-  const handleOpenPremiereExportDialog = () => {
+  const openPremiereExportDialog = (
+    videos: VideoRow[],
+    source: 'bulk' | 'row',
+  ) => {
     if (
-      selectedVideos.length === 0 ||
+      videos.length === 0 ||
       premiereStatus?.status !== 'ready' ||
       isAuditActive ||
       isTableLoading
@@ -1444,48 +1523,66 @@ export function useVideoAuditController() {
 
       return getFirstAvailablePremierePresetId(premierePresets)
     })
+    setPremiereExportDialogVideos(videos)
+    setPremiereExportDialogSource(source)
     setIsPremiereExportDialogVisible(true)
   }
 
+  const handleOpenPremiereExportDialog = () => {
+    openPremiereExportDialog(selectedVideos, 'bulk')
+  }
+
   const handleClosePremiereExportDialog = () => {
-    if (isPremiereExportSubmitting) {
+    if (isPremiereExportSubmitting || isPremiereImportSubmitting) {
       return
     }
 
     setIsPremiereExportDialogVisible(false)
+    setPremiereExportDialogVideos([])
+    setPremiereExportDialogSource('bulk')
     setPremiereExportError(null)
   }
 
-  const handleSubmitPremiereExport = async () => {
-    if (!selectedPremierePresetId) {
-      setPremiereExportError('Choose an export preset.')
+  const queuePremiereExport = async (
+    videos: VideoRow[],
+    presetId: string | null,
+    source: 'bulk' | 'row',
+  ) => {
+    const setExportError = (message: string) => {
+      setPremiereExportError(message)
+    }
+
+    if (!presetId) {
+      setExportError('Choose an export preset.')
       return
     }
 
     const selectedPreset = premierePresets.find(
-      (preset) => preset.id === selectedPremierePresetId,
+      (preset) => preset.id === presetId,
     )
 
     if (!selectedPreset || !isPremierePresetAvailable(selectedPreset)) {
-      setPremiereExportError(
+      setExportError(
         selectedPreset?.unavailableMessage ||
           'The selected export preset file is missing.',
       )
       return
     }
 
-    if (selectedVideos.length === 0) {
-      setPremiereExportError('Select at least one video to export.')
+    if (videos.length === 0) {
+      setExportError('Select at least one video to export.')
       return
     }
 
     const requestPayload: PremiereExportRequestPayload = {
-      presetId: selectedPremierePresetId,
-      videos: selectedVideos.map(toPremiereExportVideo),
+      presetId,
+      videos: videos.map(toPremiereExportVideo),
     }
 
     setIsPremiereExportSubmitting(true)
-    setPremiereExportError(null)
+    if (source === 'bulk') {
+      setPremiereExportError(null)
+    }
 
     try {
       const response = await fetch(`${apiBaseUrl}/api/premiere/export-requests`, {
@@ -1524,13 +1621,20 @@ export function useVideoAuditController() {
         setVideoRows(nextRows)
         setIsPersisted(persisted)
       }
-      setSelectedVideos([])
+      if (source === 'bulk') {
+        setSelectedVideos([])
+      }
       setIsPremiereExportDialogVisible(false)
+      setPremiereExportDialogVideos([])
+      setPremiereExportDialogSource('bulk')
       setPremiereExportError(null)
       toast.current?.show({
         severity: 'success',
         summary: 'Export queued',
-        detail: `Videos successfully added to the Media Encoder queue. Ready to export.`,
+        detail:
+          videos.length === 1
+            ? `${videos[0].fileName} was added to the Media Encoder queue.`
+            : `Videos successfully added to the Media Encoder queue. Ready to export.`,
         life: 3000,
       })
     } catch (caughtError) {
@@ -1539,7 +1643,7 @@ export function useVideoAuditController() {
           ? caughtError.message
           : 'Unable to queue export request for Premiere.'
 
-      setPremiereExportError(message)
+      setExportError(message)
       toast.current?.show({
         severity: 'error',
         summary: 'Export failed',
@@ -1549,6 +1653,18 @@ export function useVideoAuditController() {
     } finally {
       setIsPremiereExportSubmitting(false)
     }
+  }
+
+  const handleSubmitPremiereExport = async () => {
+    await queuePremiereExport(
+      premiereExportDialogVideos,
+      selectedPremierePresetId,
+      premiereExportDialogSource,
+    )
+  }
+
+  const handleQueuePremiereExportVideo = async (video: VideoRow) => {
+    openPremiereExportDialog([video], 'row')
   }
 
   const handleOpenAutoCropDialog = () => {
@@ -1563,6 +1679,8 @@ export function useVideoAuditController() {
     setAutoCropError(null)
     setAutoCropResult(null)
     setAutoCropProgress(initialAutoCropProgress)
+    setAutoCropDialogVideos(selectedCropReviewVideos)
+    setAutoCropDialogInitialMode('choose')
     setIsAutoCropDialogVisible(true)
   }
 
@@ -1572,6 +1690,8 @@ export function useVideoAuditController() {
     }
 
     setIsAutoCropDialogVisible(false)
+    setAutoCropDialogVideos(null)
+    setAutoCropDialogInitialMode('choose')
     setAutoCropError(null)
     setAutoCropResult(null)
     setAutoCropProgress(initialAutoCropProgress)
@@ -1618,8 +1738,8 @@ export function useVideoAuditController() {
     })
   }
 
-  const handleSubmitAutoCrop = async () => {
-    if (selectedAutoCropVideos.length === 0) {
+  const submitAutoCropVideos = async (videos: VideoRow[]) => {
+    if (videos.length === 0) {
       setAutoCropError('Select at least one auto-crop candidate.')
       return
     }
@@ -1632,7 +1752,7 @@ export function useVideoAuditController() {
       ...initialAutoCropProgress,
       status: 'starting',
       phase: 'starting',
-      totalFiles: selectedAutoCropVideos.length,
+      totalFiles: videos.length,
       message: 'Starting auto-crop...',
     })
 
@@ -1640,7 +1760,7 @@ export function useVideoAuditController() {
       const response = await fetch(`${apiBaseUrl}/api/adjustments/auto-crop`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ videos: selectedAutoCropVideos }),
+        body: JSON.stringify({ videos }),
       })
       const payload = (await response.json()) as AutoCropStartResponse
 
@@ -1657,7 +1777,7 @@ export function useVideoAuditController() {
         phase: 'cropping',
         outputRootDir: payload.outputRootDir ?? null,
         outputDir: payload.outputDir ?? null,
-        totalFiles: selectedAutoCropVideos.length,
+        totalFiles: videos.length,
         message: 'Cropping selected videos...',
       })
 
@@ -1703,6 +1823,23 @@ export function useVideoAuditController() {
           .finally(() => {
             setIsAutoCropSubmitting(false)
           })
+      })
+
+      eventSource.addEventListener('canceled', (event) => {
+        const canceledPayload = JSON.parse(
+          (event as MessageEvent<string>).data,
+        ) as AutoCropProgressPayload
+
+        closeAutoCropEventSource()
+        setIsAutoCropSubmitting(false)
+        setAutoCropError(null)
+        updateAutoCropProgress(canceledPayload, 'canceled')
+        toast.current?.show({
+          severity: 'info',
+          summary: 'Auto-crop canceled',
+          detail: 'The FFmpeg auto-crop job was stopped.',
+          life: 3600,
+        })
       })
 
       eventSource.addEventListener('error', (event) => {
@@ -1752,23 +1889,87 @@ export function useVideoAuditController() {
     }
   }
 
-  const handleSubmitPremiereImport = async () => {
-    if (selectedCropReviewVideos.length === 0) {
-      setAutoCropError('Select at least one video to import into Premiere.')
+  const handleCancelAutoCrop = async () => {
+    const jobId = autoCropProgress.jobId
+
+    if (!jobId || !isAutoCropSubmitting) return
+
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/adjustments/auto-crop/${jobId}/cancel`,
+        {
+          method: 'POST',
+        },
+      )
+      const payload = (await response.json()) as AutoCropProgressPayload
+
+      if (!response.ok || payload.status === 'not_found') {
+        throw new Error(payload.message || 'Unable to cancel auto-crop.')
+      }
+
+      closeAutoCropEventSource()
+      setIsAutoCropSubmitting(false)
+      setAutoCropError(null)
+      updateAutoCropProgress(payload, 'canceled')
+      toast.current?.show({
+        severity: 'info',
+        summary: 'Auto-crop canceled',
+        detail: 'The FFmpeg auto-crop job was stopped.',
+        life: 3600,
+      })
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error
+          ? caughtError.message
+          : 'Unable to cancel auto-crop.'
+
+      toast.current?.show({
+        severity: 'error',
+        summary: 'Cancel failed',
+        detail: message,
+        life: 4200,
+      })
+    }
+  }
+
+  const handleSubmitAutoCrop = async () => {
+    const submitVideos = (autoCropDialogVideos ?? selectedAutoCropVideos).filter(
+      isAutoCropCandidate,
+    )
+
+    await submitAutoCropVideos(submitVideos)
+  }
+
+  const handleSubmitAutoCropVideo = async (video: VideoRow) => {
+    setAutoCropDialogVideos([video])
+    setAutoCropDialogInitialMode('auto-crop')
+    setIsAutoCropDialogVisible(true)
+    await submitAutoCropVideos(isAutoCropCandidate(video) ? [video] : [])
+  }
+
+  const submitPremiereImportVideos = async (
+    videos: VideoRow[],
+    source: 'crop' | 'export',
+  ) => {
+    const setImportError =
+      source === 'export' ? setPremiereExportError : setAutoCropError
+
+    if (videos.length === 0) {
+      setImportError('Select at least one video to import into Premiere.')
       return
     }
 
     if (premiereStatus?.status !== 'ready') {
-      setAutoCropError('Premiere bridge must be ready before importing videos.')
+      setImportError('Premiere bridge must be ready before importing videos.')
       return
     }
 
     const requestPayload: PremiereImportRequestPayload = {
-      videos: selectedCropReviewVideos.map(toPremiereExportVideo),
+      videos: videos.map(toPremiereExportVideo),
     }
 
     setIsPremiereImportSubmitting(true)
-    setAutoCropError(null)
+    setImportError(null)
 
     try {
       const response = await fetch(`${apiBaseUrl}/api/premiere/import-requests`, {
@@ -1793,15 +1994,29 @@ export function useVideoAuditController() {
         )
       }
 
-      setIsAutoCropDialogVisible(false)
-      setAutoCropError(null)
-      setAutoCropResult(null)
-      setAutoCropProgress(initialAutoCropProgress)
+      if (source === 'crop') {
+        setIsAutoCropDialogVisible(false)
+        setAutoCropDialogVideos(null)
+        setAutoCropDialogInitialMode('choose')
+        setAutoCropError(null)
+        setAutoCropResult(null)
+        setAutoCropProgress(initialAutoCropProgress)
+      } else {
+        if (premiereExportDialogSource === 'bulk') {
+          setSelectedVideos([])
+        }
+        setIsPremiereExportDialogVisible(false)
+        setPremiereExportDialogVideos([])
+        setPremiereExportDialogSource('bulk')
+        setPremiereExportError(null)
+      }
       toast.current?.show({
         severity: 'success',
         summary: 'Import requested',
         detail:
-          'Selected videos will be imported into the open Premiere project without queueing exports.',
+          videos.length === 1
+            ? `${videos[0].fileName} will be imported into the open Premiere project without queueing exports.`
+            : 'Selected videos will be imported into the open Premiere project without queueing exports.',
         life: 4200,
       })
     } catch (caughtError) {
@@ -1810,7 +2025,7 @@ export function useVideoAuditController() {
           ? caughtError.message
           : 'Unable to import selected videos into Premiere.'
 
-      setAutoCropError(message)
+      setImportError(message)
       toast.current?.show({
         severity: 'error',
         summary: 'Import failed',
@@ -1820,6 +2035,21 @@ export function useVideoAuditController() {
     } finally {
       setIsPremiereImportSubmitting(false)
     }
+  }
+
+  const handleSubmitPremiereImport = async () => {
+    await submitPremiereImportVideos(selectedCropReviewVideos, 'crop')
+  }
+
+  const handleSubmitPremiereExportDialogImport = async () => {
+    await submitPremiereImportVideos(premiereExportDialogVideos, 'export')
+  }
+
+  const handleSubmitPremiereImportVideo = async (video: VideoRow) => {
+    await submitPremiereImportVideos(
+      isCropReviewCandidate(video) ? [video] : [],
+      'crop',
+    )
   }
 
   const fetchMigrationResult = async (migrationId: string) => {
@@ -2022,10 +2252,16 @@ export function useVideoAuditController() {
   const canExportToPremiere =
     selectedVideos.length > 0 &&
     premiereStatus?.status === 'ready' &&
-    premierePresets.some(isPremierePresetAvailable) &&
     !isAuditActive &&
     !isTableLoading &&
     !isStorageLoading
+  const canQueuePremiereExportVideo = (video: VideoRow) =>
+    video.isLowResolution &&
+    premiereStatus?.status === 'ready' &&
+    !isAuditActive &&
+    !isTableLoading &&
+    !isStorageLoading &&
+    !isPremiereExportSubmitting
   const canAutoCropSelected =
     selectedCropReviewVideos.length > 0 &&
     !isAuditActive &&
@@ -2035,6 +2271,27 @@ export function useVideoAuditController() {
     !isPremiereImportSubmitting
   const canImportSelectedToPremiere =
     selectedCropReviewVideos.length > 0 &&
+    premiereStatus?.status === 'ready' &&
+    !isAuditActive &&
+    !isTableLoading &&
+    !isStorageLoading &&
+    !isPremiereImportSubmitting
+  const canOpenCropOptionsForVideo = (video: VideoRow) =>
+    isCropReviewCandidate(video) &&
+    !isAuditActive &&
+    !isTableLoading &&
+    !isStorageLoading &&
+    !isAutoCropSubmitting &&
+    !isPremiereImportSubmitting
+  const canImportVideoToPremiere = (video: VideoRow) =>
+    isCropReviewCandidate(video) &&
+    premiereStatus?.status === 'ready' &&
+    !isAuditActive &&
+    !isTableLoading &&
+    !isStorageLoading &&
+    !isPremiereImportSubmitting
+  const canImportPremiereExportDialogVideos =
+    premiereExportDialogVideos.length > 0 &&
     premiereStatus?.status === 'ready' &&
     !isAuditActive &&
     !isTableLoading &&
@@ -2053,6 +2310,7 @@ export function useVideoAuditController() {
     autoCropPercent,
     autoCropProgress,
     autoCropResult,
+    autoCropDialogInitialMode,
     auditPercent,
     auditProgress,
     error,
@@ -2065,6 +2323,7 @@ export function useVideoAuditController() {
     handleCloseMigrationScan,
     handleClearData,
     handleCancelAudit,
+    handleCancelAutoCrop,
     checkPremiereStatus,
     handleCloseAutoCropDialog,
     handleCloseAutoCropResult,
@@ -2080,11 +2339,17 @@ export function useVideoAuditController() {
     handleOpenPremiereExportDialog,
     handleOpenSelectedFilesAudit,
     handleRefreshData,
+    handleRemoveVideosFromTable,
+    handleRestoreRemovedVideos,
     handleSelectNewEditedFolderClick,
     handleStartMigrationScan,
     handleSubmitAutoCrop,
+    handleSubmitAutoCropVideo,
     handleSubmitPremiereImport,
+    handleSubmitPremiereExportDialogImport,
+    handleSubmitPremiereImportVideo,
     handleSubmitPremiereExport,
+    handleQueuePremiereExportVideo,
     handleSelectedFilesSelect,
     handleScanSelectedFolders,
     includeLowResolutionAnalysis,
@@ -2114,17 +2379,22 @@ export function useVideoAuditController() {
     migrationScanError,
     newEditedFolderInputRef,
     premiereExportError,
+    premiereExportSelectedCount: premiereExportDialogVideos.length,
     premierePresets,
     premiereStatus,
     selectedPremierePresetId,
-    selectedAutoCropVideos: selectedCropReviewVideos,
+    selectedAutoCropVideos: autoCropDialogVideos ?? selectedCropReviewVideos,
     selectedVideos,
     selectedFilesInputRef,
     canRefresh: Boolean(storedPayload) && !isStorageLoading,
     canAutoCropSelected,
     canImportSelectedToPremiere,
+    canImportPremiereExportDialogVideos,
+    canImportVideoToPremiere,
+    canOpenCropOptionsForVideo,
     canStartMigration,
     canExportToPremiere,
+    canQueuePremiereExportVideo,
     canGenerateThumbnails,
     handleCloseGenerateThumbnailsDialog,
     setIncludeLowResolutionAnalysis,

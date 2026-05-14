@@ -875,6 +875,7 @@ function createAutoCropJob({ videos, outputRootDir }) {
     videos,
     result: null,
     error: null,
+    abortController: new AbortController(),
     listeners: new Set(),
   };
 
@@ -907,6 +908,8 @@ function broadcastAutoCrop(job, eventName, data = serializeAutoCropJob(job)) {
 }
 
 function updateAutoCropJobFromProgress(job, progress) {
+  if (job.abortController.signal.aborted) return;
+
   job.status = "running";
   job.phase = progress.phase ?? job.phase;
   job.outputDir = progress.outputDir ?? job.outputDir;
@@ -932,7 +935,10 @@ async function runAutoCropJob(jobId) {
     const result = await runAutoCrop({
       videos: job.videos,
       outputRootDir: job.outputRootDir,
+      signal: job.abortController.signal,
       onProgress(progress) {
+        if (job.abortController.signal.aborted) return;
+
         updateAutoCropJobFromProgress(job, progress);
 
         if (progress.phase !== "complete") {
@@ -955,6 +961,20 @@ async function runAutoCropJob(jobId) {
 
     broadcastAutoCrop(job, "complete", serializeAutoCropJob(job));
   } catch (error) {
+    if (
+      job.abortController.signal.aborted ||
+      error.name === "AbortError" ||
+      error.message === "Auto-crop canceled."
+    ) {
+      job.status = "canceled";
+      job.phase = "canceled";
+      job.currentFile = "";
+      job.message = "Auto-crop canceled.";
+
+      broadcastAutoCrop(job, "canceled", serializeAutoCropJob(job));
+      return;
+    }
+
     job.status = "error";
     job.phase = "error";
     job.error = error.message;
@@ -1534,7 +1554,11 @@ app.get("/api/adjustments/auto-crop/:jobId/events", (req, res) => {
   const listener = (eventName, data) => {
     sendSse(res, eventName, data);
 
-    if (eventName === "complete" || eventName === "error") {
+    if (
+      eventName === "complete" ||
+      eventName === "error" ||
+      eventName === "canceled"
+    ) {
       job.listeners.delete(listener);
       res.end();
     }
@@ -1553,9 +1577,45 @@ app.get("/api/adjustments/auto-crop/:jobId/events", (req, res) => {
     return;
   }
 
+  if (job.status === "canceled") {
+    listener("canceled", serializeAutoCropJob(job));
+    return;
+  }
+
   req.on("close", () => {
     job.listeners.delete(listener);
   });
+});
+
+app.post("/api/adjustments/auto-crop/:jobId/cancel", (req, res) => {
+  const job = autoCropJobs.get(req.params.jobId);
+
+  if (!job) {
+    res.status(404).json({
+      status: "not_found",
+      message: "Auto-crop job not found.",
+    });
+    return;
+  }
+
+  if (
+    job.status === "complete" ||
+    job.status === "error" ||
+    job.status === "canceled"
+  ) {
+    res.json(serializeAutoCropJob(job));
+    return;
+  }
+
+  job.abortController.abort();
+  job.status = "canceled";
+  job.phase = "canceled";
+  job.currentFile = "";
+  job.message = "Auto-crop canceled.";
+
+  const payload = serializeAutoCropJob(job);
+  broadcastAutoCrop(job, "canceled", payload);
+  res.json(payload);
 });
 
 app.get("/api/adjustments/auto-crop/:jobId/result", (req, res) => {

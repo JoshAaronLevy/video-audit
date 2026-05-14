@@ -21,6 +21,7 @@ function App() {
   const {
     auditedRootDirectory,
     autoCropError,
+    autoCropDialogInitialMode,
     autoCropPercent,
     autoCropProgress,
     autoCropResult,
@@ -29,7 +30,11 @@ function App() {
     canAutoCropSelected,
     canExportToPremiere,
     canGenerateThumbnails,
+    canImportPremiereExportDialogVideos,
     canImportSelectedToPremiere,
+    canImportVideoToPremiere,
+    canOpenCropOptionsForVideo,
+    canQueuePremiereExportVideo,
     canRefresh,
     canStartMigration,
     checkPremiereStatus,
@@ -40,6 +45,7 @@ function App() {
     globalFilter,
     handleClearData,
     handleCancelAudit,
+    handleCancelAutoCrop,
     handleCloseMigrationDialog,
     handleCloseMigrationResult,
     handleCloseAutoCropDialog,
@@ -58,12 +64,18 @@ function App() {
     handleOpenGenerateThumbnails,
     handleOpenSelectedFilesAudit,
     handleRefreshData,
+    handleRemoveVideosFromTable,
+    handleRestoreRemovedVideos,
     handleSelectNewEditedFolderClick,
     handleStartMigrationScan,
     handleSubmitAutoCrop,
+    handleSubmitAutoCropVideo,
     handleStartThumbnailGeneration,
+    handleSubmitPremiereExportDialogImport,
     handleSubmitPremiereImport,
+    handleSubmitPremiereImportVideo,
     handleSubmitPremiereExport,
+    handleQueuePremiereExportVideo,
     handleSelectedFilesSelect,
     handleScanSelectedFolders,
     includeLowResolutionAnalysis,
@@ -94,6 +106,7 @@ function App() {
     migrationScanError,
     newEditedFolderInputRef,
     premiereExportError,
+    premiereExportSelectedCount,
     premierePresets,
     premiereStatus,
     selectedPremierePresetId,
@@ -189,6 +202,9 @@ function App() {
             canAutoCropSelected={canAutoCropSelected}
             canExportToPremiere={canExportToPremiere}
             canGenerateThumbnails={canGenerateThumbnails}
+            canImportVideoToPremiere={canImportVideoToPremiere}
+            canOpenCropOptionsForVideo={canOpenCropOptionsForVideo}
+            canQueuePremiereExportVideo={canQueuePremiereExportVideo}
             canStartMigration={canStartMigration}
             canRefresh={canRefresh}
             fileName={fileName}
@@ -199,11 +215,16 @@ function App() {
             isPersisted={isPersisted}
             onClearData={handleClearData}
             onAutoCropSelectedClick={handleOpenAutoCropDialog}
+            onAutoCropVideoClick={handleSubmitAutoCropVideo}
             onExportToPremiereClick={handleOpenPremiereExportDialog}
+            onExportVideoToPremiereClick={handleQueuePremiereExportVideo}
             onGenerateThumbnailsClick={handleOpenGenerateThumbnails}
+            onImportVideoToPremiereClick={handleSubmitPremiereImportVideo}
             onMigrateNewEditsClick={handleOpenMigrationDialog}
             onGlobalFilterChange={setGlobalFilter}
+            onRemoveVideosClick={handleRemoveVideosFromTable}
             onRefreshData={handleRefreshData}
+            onRestoreRemovedVideosClick={handleRestoreRemovedVideos}
             onSelectedVideosChange={setSelectedVideos}
             onShowThumbnailsChange={setShowThumbnails}
             selectedVideos={selectedVideos}
@@ -225,10 +246,12 @@ function App() {
       <AutoCropDialog
         autoCropPercent={autoCropPercent}
         error={autoCropError}
+        initialMode={autoCropDialogInitialMode}
         isSubmitting={isAutoCropSubmitting}
         isPremiereImportSubmitting={isPremiereImportSubmitting}
         canImportToPremiere={canImportSelectedToPremiere}
         onHide={handleCloseAutoCropDialog}
+        onCancel={handleCancelAutoCrop}
         onImportToPremiere={handleSubmitPremiereImport}
         onSubmit={handleSubmitAutoCrop}
         progress={autoCropProgress}
@@ -245,13 +268,16 @@ function App() {
       />
 
       <PremiereExportDialog
+        canImportToPremiere={canImportPremiereExportDialogVideos}
         error={premiereExportError}
+        isImportSubmitting={isPremiereImportSubmitting}
         isSubmitting={isPremiereExportSubmitting}
         onHide={handleClosePremiereExportDialog}
+        onImportToPremiere={handleSubmitPremiereExportDialogImport}
         onPresetChange={setSelectedPremierePresetId}
         onSubmit={handleSubmitPremiereExport}
         presets={premierePresets}
-        selectedCount={selectedVideos.length}
+        selectedCount={premiereExportSelectedCount}
         selectedPresetId={selectedPremierePresetId}
         visible={isPremiereExportDialogVisible}
       />

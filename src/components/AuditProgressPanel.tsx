@@ -30,6 +30,12 @@ function formatElapsedTime(totalSeconds: number) {
   return `${seconds}s`
 }
 
+function formatFlaggedPercentage(flaggedCount: number, processedFiles: number) {
+  if (processedFiles <= 0) return '0%'
+
+  return `${((flaggedCount / processedFiles) * 100).toFixed(1)}%`
+}
+
 export function AuditProgressPanel({
   auditPercent,
   auditProgress,
@@ -72,6 +78,10 @@ export function AuditProgressPanel({
       : auditProgress.status === 'canceled'
         ? 'Audit canceled'
         : auditProgress.message || 'Audit running'
+  const flaggedPercentage = formatFlaggedPercentage(
+    auditProgress.flaggedCount,
+    auditProgress.processedFiles,
+  )
 
   return (
     <div className="audit-progress" aria-live="polite">
@@ -100,7 +110,10 @@ export function AuditProgressPanel({
             : 'unknown'}{' '}
           files
         </span>
-        <span>Flagged: {formatProgressNumber(auditProgress.flaggedCount)}</span>
+        <span>
+          Flagged: {formatProgressNumber(auditProgress.flaggedCount)} (
+          {flaggedPercentage})
+        </span>
         <span>Elapsed: {formatElapsedTime(displayElapsedSeconds)}</span>
       </div>
     </div>

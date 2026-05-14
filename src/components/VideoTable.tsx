@@ -1,4 +1,11 @@
 import { useMemo, useState } from 'react'
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
+import {
+  faArrowUpFromBracket,
+  faCircleMinus,
+  faCrop,
+  faEye,
+} from '@fortawesome/free-solid-svg-icons'
 import { Button } from 'primereact/button'
 import { Column } from 'primereact/column'
 import { DataTable } from 'primereact/datatable'
@@ -12,14 +19,22 @@ import { Skeleton } from 'primereact/skeleton'
 import { Tooltip } from 'primereact/tooltip'
 import { VideoThumbnailPreview } from './VideoThumbnailPreview'
 import type { VideoAdjustments, VideoRow, VideoStatus } from '../types/video'
+import type {
+  VideoPreviewFrame,
+  VideoPreviewFrameResult,
+} from '../types/video'
 import {
+  apiBaseUrl,
   formatDate,
   formatDuration,
   formatNumber,
+  getBlackBorderCropDisplay,
   getBlackBorderCropStatus,
+  getMaxPreviewFrameCount,
   getRowDisplayFile,
   getRowDisplayFileName,
   globalFilterFields,
+  isAutoCropCandidate,
   isCropReviewCandidate,
 } from '../helpers/utils'
 import type { CropReviewStatus } from '../helpers/utils'
@@ -27,6 +42,9 @@ import type { CropReviewStatus } from '../helpers/utils'
 type VideoTableProps = {
   canExportToPremiere: boolean
   canGenerateThumbnails: boolean
+  canImportVideoToPremiere: (video: VideoRow) => boolean
+  canOpenCropOptionsForVideo: (video: VideoRow) => boolean
+  canQueuePremiereExportVideo: (video: VideoRow) => boolean
   canAutoCropSelected: boolean
   canStartMigration: boolean
   canRefresh: boolean
@@ -38,11 +56,16 @@ type VideoTableProps = {
   isGeneratingThumbnails: boolean
   onClearData: () => void
   onAutoCropSelectedClick: () => void
+  onAutoCropVideoClick: (video: VideoRow) => void
   onExportToPremiereClick: () => void
+  onExportVideoToPremiereClick: (video: VideoRow) => void
   onGenerateThumbnailsClick: (tableRows: VideoRow[]) => void
+  onImportVideoToPremiereClick: (video: VideoRow) => void
   onMigrateNewEditsClick: () => void
   onGlobalFilterChange: (value: string) => void
+  onRemoveVideosClick: (videos: VideoRow[]) => void
   onRefreshData: () => void
+  onRestoreRemovedVideosClick: () => void
   onSelectedVideosChange: (videos: VideoRow[]) => void
   onShowThumbnailsChange: (showThumbnails: boolean) => void
   selectedVideos: VideoRow[]
@@ -74,6 +97,7 @@ type FileSizeFilterValue =
 type DirectoryFilterValue = string
 type CropFilterValue = CropReviewStatus
 type FileTypeFilterValue = string
+type PreviewFrameFetchMode = 'additional' | 'fresh'
 
 type SelectOption<TValue> = {
   label: string
@@ -137,10 +161,11 @@ const statusFilterOptions: SelectOption<VideoStatus>[] = [
 ]
 
 const cropFilterOptions: SelectOption<CropFilterValue>[] = [
-  { label: 'Yes', value: 'Yes' },
+  { label: 'Auto', value: 'Auto' },
+  { label: 'Review', value: 'Review' },
   { label: 'No', value: 'No' },
   { label: 'Uncertain', value: 'Uncertain' },
-  { label: 'Errored', value: 'Errored' },
+  { label: 'Error', value: 'Error' },
 ]
 
 const formatRoundedMegabytes = (value: number | null) =>
@@ -191,6 +216,58 @@ const fileSizeFilterFunction = (
 
 const getFileTypeLabel = (row: VideoRow) =>
   row.fileType || row.fileExtension?.replace(/^\./, '').toUpperCase() || ''
+
+const getThumbnailSrc = (url: string) =>
+  url.startsWith('/api/') ? `${apiBaseUrl}${url}` : url
+
+const getPreviewFrameKey = (frame: VideoPreviewFrame) =>
+  `${frame.batchId}:${frame.index}:${frame.thumbnail.url ?? frame.timestampSeconds}`
+
+const getGeneratedPreviewFrames = (result?: VideoPreviewFrameResult) =>
+  (result?.frames ?? []).filter(
+    (frame) => frame.thumbnail.generated === true && Boolean(frame.thumbnail.url),
+  )
+
+const getRowPreviewFrameResult = (
+  row: VideoRow | null,
+): VideoPreviewFrameResult | undefined => {
+  if (!row?.previewFrames || row.previewFrames.length === 0) {
+    return undefined
+  }
+
+  return {
+    durationSeconds: row.durationSeconds,
+    maxPreviewFrameCount:
+      row.maxPreviewFrameCount ?? getMaxPreviewFrameCount(row.durationSeconds),
+    mode: 'additional',
+    batchId: row.previewFrameBatchId ?? 'default',
+    summary: {
+      requested: row.previewFrames.length,
+      existing: row.previewFrames.length,
+      generated: 0,
+      cached: row.previewFrames.length,
+      failed: row.previewFrames.filter(
+        (frame) => frame.thumbnail.generated !== true,
+      ).length,
+      returned: row.previewFrames.length,
+    },
+    frames: row.previewFrames,
+  }
+}
+
+const toPreviewFrameRequestVideo = (row: VideoRow) => {
+  const modifiedAtMs = row.modifiedAt ? Date.parse(row.modifiedAt) : null
+
+  return {
+    id: row.path,
+    fileName: row.fileName,
+    path: row.path,
+    absolutePath: row.path,
+    durationSeconds: row.durationSeconds ?? undefined,
+    sizeBytes: row.sizeBytes ?? row.fileSystemSizeBytes ?? undefined,
+    modifiedAtMs: Number.isFinite(modifiedAtMs) ? modifiedAtMs : undefined,
+  }
+}
 
 const getTopLevelDirectory = (displayDirectory: string) =>
   displayDirectory.split(/[\\/]+/).filter(Boolean)[0] ?? ''
@@ -691,9 +768,15 @@ const aspectRatioTemplate = (row: VideoRow) => (
 )
 
 const cropTemplate = (row: VideoRow) => {
+  const crop = getBlackBorderCropDisplay(row)
+
   return (
-    <div className="cell-stack">
-      <span>{getBlackBorderCropStatus(row.adjustments)}</span>
+    <div
+      className="cell-stack crop-cell"
+      data-pr-tooltip={crop.detail}
+      data-pr-position="top"
+    >
+      <span>{crop.value}</span>
     </div>
   )
 }
@@ -777,6 +860,9 @@ export function VideoTable({
   canAutoCropSelected,
   canExportToPremiere,
   canGenerateThumbnails,
+  canImportVideoToPremiere,
+  canOpenCropOptionsForVideo,
+  canQueuePremiereExportVideo,
   canStartMigration,
   // canRefresh,
   fileName,
@@ -787,11 +873,16 @@ export function VideoTable({
   // isPersisted,
   onClearData,
   onAutoCropSelectedClick,
+  onAutoCropVideoClick,
   onExportToPremiereClick,
+  onExportVideoToPremiereClick,
   onGenerateThumbnailsClick,
+  onImportVideoToPremiereClick,
   onMigrateNewEditsClick,
   onGlobalFilterChange,
+  onRemoveVideosClick,
   // onRefreshData,
+  onRestoreRemovedVideosClick,
   onSelectedVideosChange,
   onShowThumbnailsChange,
   selectedVideos,
@@ -820,6 +911,21 @@ export function VideoTable({
   const [statusFilterValue, setStatusFilterValue] =
     useState<VideoStatus | null>(null)
   const [detailVideo, setDetailVideo] = useState<VideoRow | null>(null)
+  const [previewFramesByVideoPath, setPreviewFramesByVideoPath] = useState<
+    Record<string, VideoPreviewFrameResult>
+  >({})
+  const [selectedPreviewFrameKey, setSelectedPreviewFrameKey] = useState<
+    string | null
+  >(null)
+  const [previewFetchMode, setPreviewFetchMode] =
+    useState<PreviewFrameFetchMode | null>(null)
+  const [previewFrameError, setPreviewFrameError] = useState<string | null>(
+    null,
+  )
+  const [cropActionVideo, setCropActionVideo] = useState<VideoRow | null>(null)
+  const [previewFrameMessage, setPreviewFrameMessage] = useState<string | null>(
+    null,
+  )
   const activeFilters = useMemo<ActiveVideoFilters>(
     () => ({
       aspectRatio: aspectRatioFilterValue,
@@ -844,45 +950,50 @@ export function VideoTable({
       statusFilterValue,
     ],
   )
+  const tableVideoRows = useMemo(
+    () => videoRows.filter((row) => row.visible !== false),
+    [videoRows],
+  )
+  const removedVideoCount = videoRows.length - tableVideoRows.length
   const visibleVideoCount = useMemo(
-    () => getVisibleVideoCount(videoRows, activeFilters),
-    [activeFilters, videoRows],
+    () => getVisibleVideoCount(tableVideoRows, activeFilters),
+    [activeFilters, tableVideoRows],
   )
   const visibleVideoRows = useMemo(
-    () => videoRows.filter((row) => matchesVideoFilters(row, activeFilters)),
-    [activeFilters, videoRows],
+    () => tableVideoRows.filter((row) => matchesVideoFilters(row, activeFilters)),
+    [activeFilters, tableVideoRows],
   )
   const directoryFilterOptions = useMemo(
-    () => buildDirectoryFilterOptionsForFilters(videoRows, activeFilters),
-    [activeFilters, videoRows],
+    () => buildDirectoryFilterOptionsForFilters(tableVideoRows, activeFilters),
+    [activeFilters, tableVideoRows],
   )
   const countedFileSizeFilterOptions = useMemo(
-    () => buildFileSizeFilterOptions(videoRows, activeFilters),
-    [activeFilters, videoRows],
+    () => buildFileSizeFilterOptions(tableVideoRows, activeFilters),
+    [activeFilters, tableVideoRows],
   )
   const countedFileTypeFilterOptions = useMemo(
-    () => buildFileTypeFilterOptions(videoRows, activeFilters),
-    [activeFilters, videoRows],
+    () => buildFileTypeFilterOptions(tableVideoRows, activeFilters),
+    [activeFilters, tableVideoRows],
   )
   const countedDurationFilterOptions = useMemo(
-    () => buildDurationFilterOptions(videoRows, activeFilters),
-    [activeFilters, videoRows],
+    () => buildDurationFilterOptions(tableVideoRows, activeFilters),
+    [activeFilters, tableVideoRows],
   )
   const countedResolutionFilterOptions = useMemo(
-    () => buildResolutionFilterOptions(videoRows, activeFilters),
-    [activeFilters, videoRows],
+    () => buildResolutionFilterOptions(tableVideoRows, activeFilters),
+    [activeFilters, tableVideoRows],
   )
   const countedAspectRatioFilterOptions = useMemo(
-    () => buildAspectRatioFilterOptions(videoRows, activeFilters),
-    [activeFilters, videoRows],
+    () => buildAspectRatioFilterOptions(tableVideoRows, activeFilters),
+    [activeFilters, tableVideoRows],
   )
   const countedCropFilterOptions = useMemo(
-    () => buildCropFilterOptions(videoRows, activeFilters),
-    [activeFilters, videoRows],
+    () => buildCropFilterOptions(tableVideoRows, activeFilters),
+    [activeFilters, tableVideoRows],
   )
   const countedStatusFilterOptions = useMemo(
-    () => buildStatusFilterOptions(videoRows, activeFilters),
-    [activeFilters, videoRows],
+    () => buildStatusFilterOptions(tableVideoRows, activeFilters),
+    [activeFilters, tableVideoRows],
   )
   const selectedVideosSizeMB = useMemo(
     () =>
@@ -912,18 +1023,258 @@ export function VideoTable({
     selectedVideos.length > 0
       ? `Generate Thumbnails (${selectedVideos.length.toLocaleString()})`
       : 'Generate Thumbnails'
+  const currentPreviewFrameResult = detailVideo
+    ? (previewFramesByVideoPath[detailVideo.path] ??
+      getRowPreviewFrameResult(detailVideo))
+    : undefined
+  const currentPreviewFrames = getGeneratedPreviewFrames(
+    currentPreviewFrameResult,
+  )
+  const selectedPreviewFrame =
+    currentPreviewFrames.find(
+      (frame) => getPreviewFrameKey(frame) === selectedPreviewFrameKey,
+    ) ??
+    currentPreviewFrames[0] ??
+    null
+  const tableThumbnailUrl =
+    detailVideo?.thumbnail?.generated === true ? detailVideo.thumbnail.url : null
+  const mainPreviewUrl =
+    selectedPreviewFrame?.thumbnail.url ?? tableThumbnailUrl ?? null
+  const mainPreviewSrc = mainPreviewUrl ? getThumbnailSrc(mainPreviewUrl) : ''
+  const mainPreviewLabel = selectedPreviewFrame
+    ? `${detailVideo?.fileName ?? 'Video'} at ${selectedPreviewFrame.timestampLabel}`
+    : detailVideo
+      ? `Thumbnail preview for ${detailVideo.fileName}`
+      : 'Video preview'
+  const maxPreviewFrameCount =
+    currentPreviewFrameResult?.maxPreviewFrameCount ??
+    getMaxPreviewFrameCount(detailVideo?.durationSeconds)
+  const remainingPreviewFrameCount = Math.max(
+    maxPreviewFrameCount - currentPreviewFrames.length,
+    0,
+  )
+  const isFetchingPreviewFrames = previewFetchMode !== null
+  const additionalThumbnailButtonLabel =
+    remainingPreviewFrameCount > 0
+      ? `Fetch ${remainingPreviewFrameCount.toLocaleString()} Additional Thumbnails`
+      : 'Fetch Additional Thumbnails'
+  const failedPreviewFrameCount =
+    currentPreviewFrameResult?.summary.failed ??
+    (currentPreviewFrameResult?.frames ?? []).filter(
+      (frame) => frame.thumbnail.generated !== true,
+    ).length
+  const handleOpenDetails = (row: VideoRow) => {
+    const savedPreviewFrames = getGeneratedPreviewFrames(
+      previewFramesByVideoPath[row.path],
+    )
+
+    setDetailVideo(row)
+    setSelectedPreviewFrameKey(
+      savedPreviewFrames[0] ? getPreviewFrameKey(savedPreviewFrames[0]) : null,
+    )
+    setPreviewFrameError(null)
+    setPreviewFrameMessage(null)
+  }
+  const handleCloseDetails = () => {
+    setDetailVideo(null)
+    setSelectedPreviewFrameKey(null)
+    setPreviewFrameError(null)
+    setPreviewFrameMessage(null)
+  }
+  const handleFetchPreviewFrames = async (mode: PreviewFrameFetchMode) => {
+    if (!detailVideo) {
+      return
+    }
+
+    if (!detailVideo.path) {
+      setPreviewFrameError('This video does not have a valid local path.')
+      return
+    }
+
+    setPreviewFetchMode(mode)
+    setPreviewFrameError(null)
+    setPreviewFrameMessage(null)
+
+    try {
+      const response = await fetch(
+        `${apiBaseUrl}/api/thumbnails/preview-frames`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            video: toPreviewFrameRequestVideo(detailVideo),
+            mode,
+          }),
+        },
+      )
+      const payload = (await response.json()) as
+        | VideoPreviewFrameResult
+        | { message?: string }
+
+      if (!response.ok) {
+        throw new Error(
+          'message' in payload && payload.message
+            ? payload.message
+            : 'Unable to fetch preview frames.',
+        )
+      }
+
+      if (!('frames' in payload) || !Array.isArray(payload.frames)) {
+        throw new Error('The preview frame response was incomplete.')
+      }
+
+      const nextResult = payload as VideoPreviewFrameResult
+      const nextFrames = getGeneratedPreviewFrames(nextResult)
+
+      setPreviewFramesByVideoPath((currentResults) => ({
+        ...currentResults,
+        [detailVideo.path]: nextResult,
+      }))
+
+      setSelectedPreviewFrameKey((currentKey) => {
+        if (mode === 'additional' && currentKey) {
+          const stillAvailable = nextFrames.some(
+            (frame) => getPreviewFrameKey(frame) === currentKey,
+          )
+
+          if (stillAvailable) {
+            return currentKey
+          }
+        }
+
+        return nextFrames[0] ? getPreviewFrameKey(nextFrames[0]) : null
+      })
+
+      if (nextFrames.length === 0) {
+        setPreviewFrameError('No preview frames were returned for this video.')
+      } else if (nextResult.summary.failed > 0) {
+        setPreviewFrameMessage(
+          `${nextFrames.length.toLocaleString()} preview frames ready; ${nextResult.summary.failed.toLocaleString()} failed.`,
+        )
+      } else {
+        setPreviewFrameMessage(
+          mode === 'fresh'
+            ? 'New preview frames ready.'
+            : 'Preview frames ready.',
+        )
+      }
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error
+          ? caughtError.message
+          : 'Unable to fetch preview frames.'
+
+      setPreviewFrameError(message)
+    } finally {
+      setPreviewFetchMode(null)
+    }
+  }
+  const closeCropActionDialog = () => {
+    setCropActionVideo(null)
+  }
+
+  const handleCropActionAuto = () => {
+    if (!cropActionVideo) {
+      return
+    }
+
+    const video = cropActionVideo
+    closeCropActionDialog()
+    onAutoCropVideoClick(video)
+  }
+
+  const handleCropActionPremiere = () => {
+    if (!cropActionVideo) {
+      return
+    }
+
+    const video = cropActionVideo
+    closeCropActionDialog()
+    onImportVideoToPremiereClick(video)
+  }
+
   const actionsTemplate = (row: VideoRow) => (
-    <Button
-      type="button"
-      label="View details"
-      size="small"
-      severity="secondary"
-      outlined
-      onClick={(event) => {
-        event.stopPropagation()
-        setDetailVideo(row)
-      }}
-    />
+    <div className="row-actions">
+      <Button
+        type="button"
+        aria-label="View details"
+        size="small"
+        severity="info"
+        className="row-action-button"
+        onClick={(event) => {
+          event.stopPropagation()
+          handleOpenDetails(row)
+        }}
+      >
+        <FontAwesomeIcon icon={faEye} />
+      </Button>
+      <Button
+        type="button"
+        aria-label="Export to Premiere"
+        size="small"
+        severity="success"
+        disabled={!canQueuePremiereExportVideo(row)}
+        className="row-action-button"
+        onClick={(event) => {
+          event.stopPropagation()
+          onExportVideoToPremiereClick(row)
+        }}
+      >
+        <FontAwesomeIcon icon={faArrowUpFromBracket} />
+      </Button>
+      <Button
+        type="button"
+        aria-label="Crop options"
+        size="small"
+        severity="warning"
+        disabled={!canOpenCropOptionsForVideo(row)}
+        className="row-action-button"
+        onClick={(event) => {
+          event.stopPropagation()
+          setCropActionVideo(row)
+        }}
+      >
+        <FontAwesomeIcon icon={faCrop} />
+      </Button>
+      <Button
+        type="button"
+        aria-label="Remove from table"
+        size="small"
+        severity="danger"
+        outlined
+        className="row-action-button"
+        onClick={(event) => {
+          event.stopPropagation()
+          onRemoveVideosClick([row])
+        }}
+      >
+        <FontAwesomeIcon icon={faCircleMinus} />
+      </Button>
+    </div>
+  )
+  const cropActionDialogFooter = (
+    <div className="crop-action-dialog-actions">
+      <Button
+        type="button"
+        label="Cancel"
+        severity="secondary"
+        text
+        onClick={closeCropActionDialog}
+      />
+      <Button
+        type="button"
+        label="Auto"
+        severity="warning"
+        disabled={!cropActionVideo || !isAutoCropCandidate(cropActionVideo)}
+        onClick={handleCropActionAuto}
+      />
+      <Button
+        type="button"
+        label="Premiere"
+        disabled={!cropActionVideo || !canImportVideoToPremiere(cropActionVideo)}
+        onClick={handleCropActionPremiere}
+      />
+    </div>
   )
 
   const tableHeader = (
@@ -987,6 +1338,22 @@ export function VideoTable({
           disabled={!canStartMigration}
           onClick={onMigrateNewEditsClick}
         />
+        <Button
+          type="button"
+          label="Remove Selected Videos"
+          severity="danger"
+          outlined
+          disabled={isLoading || selectedVideos.length === 0}
+          onClick={() => onRemoveVideosClick(selectedVideos)}
+        />
+        <Button
+          type="button"
+          label="Restore Removed Videos"
+          severity="secondary"
+          outlined
+          disabled={isLoading || removedVideoCount === 0}
+          onClick={onRestoreRemovedVideosClick}
+        />
         <InputText
           value={globalFilter}
           onChange={(event) => onGlobalFilterChange(event.target.value)}
@@ -1018,8 +1385,9 @@ export function VideoTable({
       aria-label="Loaded videos"
     >
       <Tooltip target=".file-cell-tooltip" position="top" showDelay={2000} />
+      <Tooltip target=".crop-cell" position="top" showDelay={1000} />
       <DataTable
-        value={isLoading ? loadingRows : videoRows}
+        value={isLoading ? loadingRows : tableVideoRows}
         header={tableHeader}
         dataKey="path"
         className="video-table"
@@ -1042,7 +1410,7 @@ export function VideoTable({
         stripedRows
         size="small"
         scrollable
-        tableStyle={{ minWidth: '1320px' }}
+        tableStyle={{ minWidth: '1420px' }}
         emptyMessage={isLoading ? '' : 'No videos found.'}
       >
         <Column
@@ -1211,9 +1579,25 @@ export function VideoTable({
         <Column
           header="Actions"
           body={isLoading ? skeletonTemplate : actionsTemplate}
-          style={{ width: '9%' }}
+          style={{ width: '12%' }}
         />
       </DataTable>
+      <Dialog
+        header="Crop Options"
+        visible={Boolean(cropActionVideo)}
+        modal
+        dismissableMask
+        draggable={false}
+        resizable={false}
+        className="crop-action-dialog"
+        footer={cropActionDialogFooter}
+        onHide={closeCropActionDialog}
+      >
+        <p>
+          Try auto-crop for {cropActionVideo?.fileName ?? 'this video'}, or
+          import the original video into Premiere Pro for manual cropping.
+        </p>
+      </Dialog>
       <Dialog
         visible={Boolean(detailVideo)}
         modal
@@ -1223,9 +1607,104 @@ export function VideoTable({
         showHeader={false}
         className="video-details-dialog"
         contentClassName="video-details-dialog-content"
-        onHide={() => setDetailVideo(null)}
+        onHide={handleCloseDetails}
       >
-        {detailVideo && renderVideoDetailRows(detailVideo)}
+        {detailVideo && (
+          <>
+            <div className="video-details-preview">
+              <div className="video-details-preview-main">
+                {mainPreviewSrc ? (
+                  <img
+                    src={mainPreviewSrc}
+                    alt={mainPreviewLabel}
+                    className="video-details-preview-image"
+                  />
+                ) : (
+                  <div className="video-details-preview-placeholder">
+                    No thumbnail available
+                  </div>
+                )}
+              </div>
+
+              {currentPreviewFrames.length > 0 && (
+                <div
+                  className="video-details-preview-strip"
+                  aria-label="Preview frame thumbnails"
+                >
+                  {currentPreviewFrames.map((frame) => {
+                    const frameKey = getPreviewFrameKey(frame)
+                    const isSelected =
+                      selectedPreviewFrame?.thumbnail.url ===
+                        frame.thumbnail.url &&
+                      selectedPreviewFrame?.batchId === frame.batchId
+                    const frameUrl = frame.thumbnail.url
+
+                    if (!frameUrl) {
+                      return null
+                    }
+
+                    return (
+                      <button
+                        key={frameKey}
+                        type="button"
+                        className={`video-details-preview-thumb ${isSelected ? 'is-selected' : ''}`}
+                        onClick={() => setSelectedPreviewFrameKey(frameKey)}
+                        aria-label={`Show frame at ${frame.timestampLabel}`}
+                      >
+                        <img
+                          src={getThumbnailSrc(frameUrl)}
+                          alt={`Preview frame at ${frame.timestampLabel}`}
+                        />
+                        <span>{frame.timestampLabel}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
+              <div className="video-details-preview-actions">
+                {remainingPreviewFrameCount > 0 && (
+                  <Button
+                    type="button"
+                    label={additionalThumbnailButtonLabel}
+                    severity="secondary"
+                    outlined
+                    disabled={isFetchingPreviewFrames}
+                    loading={previewFetchMode === 'additional'}
+                    onClick={() => void handleFetchPreviewFrames('additional')}
+                  />
+                )}
+                <Button
+                  type="button"
+                  label="Fetch New Thumbnails"
+                  severity="secondary"
+                  disabled={isFetchingPreviewFrames}
+                  loading={previewFetchMode === 'fresh'}
+                  onClick={() => void handleFetchPreviewFrames('fresh')}
+                />
+              </div>
+
+              {isFetchingPreviewFrames && (
+                <p className="video-details-preview-status">
+                  Fetching preview frames...
+                </p>
+              )}
+              {previewFrameMessage && (
+                <p className="video-details-preview-message">
+                  {previewFrameMessage}
+                </p>
+              )}
+              {(previewFrameError || failedPreviewFrameCount > 0) && (
+                <p className="video-details-preview-warning">
+                  {previewFrameError ??
+                    `${failedPreviewFrameCount.toLocaleString()} preview frames failed.`}
+                </p>
+              )}
+            </div>
+
+            {renderVideoDetailRows(detailVideo)}
+          </>
+        )}
       </Dialog>
     </section>
   )
