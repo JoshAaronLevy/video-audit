@@ -7,9 +7,11 @@ import {
   getAuditPercent,
   getAutoCropPercent,
   getMigrationPercent,
+  getThumbnailPercent,
   initialAuditProgress,
   initialAutoCropProgress,
   initialMigrationProgress,
+  initialThumbnailProgress,
   isAutoCropCandidate,
   isCropReviewCandidate,
   isVideoLikeFile,
@@ -17,6 +19,7 @@ import {
   mergeAuditProgress,
   mergeAutoCropProgress,
   mergeMigrationProgress,
+  mergeThumbnailProgress,
   saveVideoData,
   toFolderPathManifest,
   toSelectedFilesManifest,
@@ -34,7 +37,12 @@ import type {
   AutoCropStartResponse,
   FolderPathTestSummary,
   SelectedFileManifestItem,
-  StoredVideoData,
+  ThumbnailProgress,
+  ThumbnailProgressPayload,
+  ThumbnailResultItem,
+  ThumbnailResultResponse,
+  ThumbnailScope,
+  ThumbnailStartResponse,
   VideoRow,
 } from '../types/video'
 import type {
@@ -76,6 +84,43 @@ const markRowsQueued = (rows: VideoRow[], queuedVideoPaths: Set<string>) =>
   rows.map((row) =>
     queuedVideoPaths.has(row.path) ? { ...row, status: 'Queued' as const } : row,
   )
+
+const getThumbnailItemKey = (item: ThumbnailResultItem) =>
+  item.path || item.absolutePath || item.id || null
+
+const mergeThumbnailItems = (
+  rows: VideoRow[],
+  items: ThumbnailResultItem[],
+) => {
+  const thumbnailsByKey = new Map<string, ThumbnailResultItem['thumbnail']>()
+
+  items.forEach((item) => {
+    const key = getThumbnailItemKey(item)
+
+    if (key) {
+      thumbnailsByKey.set(key, item.thumbnail)
+    }
+  })
+
+  return rows.map((row) => {
+    const thumbnail = thumbnailsByKey.get(row.path)
+
+    return thumbnail ? { ...row, thumbnail } : row
+  })
+}
+
+const toThumbnailRequestVideo = (row: VideoRow) => {
+  const modifiedAtMs = row.modifiedAt ? Date.parse(row.modifiedAt) : null
+
+  return {
+    id: row.path,
+    fileName: row.fileName,
+    path: row.path,
+    durationSeconds: row.durationSeconds,
+    sizeBytes: row.sizeBytes ?? row.fileSystemSizeBytes ?? undefined,
+    modifiedAtMs: Number.isFinite(modifiedAtMs) ? modifiedAtMs : undefined,
+  }
+}
 
 type FileWithMaybePath = File & {
   path?: string
@@ -126,36 +171,35 @@ const getAbsoluteFolderPathFromSelection = (
   return `${prefix}${rootParts.join('/')}`
 }
 
+const isDirectFolderVideo = (item: ReturnType<typeof toFolderPathManifest>[number]) =>
+  item.relativePath.split('/').filter(Boolean).length <= 2
+
 export function useVideoAuditController() {
-  const [initialData] = useState<StoredVideoData | null>(() =>
-    loadStoredVideoData(),
-  )
   const folderPathInputRef = useRef<HTMLInputElement | null>(null)
   const selectedFilesInputRef = useRef<HTMLInputElement | null>(null)
   const newEditedFolderInputRef = useRef<HTMLInputElement | null>(null)
   const auditEventSourceRef = useRef<EventSource | null>(null)
   const autoCropEventSourceRef = useRef<EventSource | null>(null)
   const migrationEventSourceRef = useRef<EventSource | null>(null)
+  const thumbnailEventSourceRef = useRef<EventSource | null>(null)
   const toast = useRef<Toast>(null)
   const [error, setError] = useState<string | null>(null)
-  const [fileName, setFileName] = useState<string | null>(
-    () => initialData?.fileName ?? null,
-  )
-  const [videoRows, setVideoRows] = useState<VideoRow[] | null>(
-    () => initialData?.rows ?? null,
-  )
-  const [storedPayload, setStoredPayload] = useState<string | null>(
-    () => initialData?.payload ?? null,
-  )
+  const [fileName, setFileName] = useState<string | null>(null)
+  const [videoRows, setVideoRows] = useState<VideoRow[] | null>(null)
+  const [storedPayload, setStoredPayload] = useState<string | null>(null)
   const [auditedRootDirectory, setAuditedRootDirectory] = useState<string | null>(
-    () => initialData?.fileName ?? null,
+    null,
   )
-  const [isPersisted, setIsPersisted] = useState(() => Boolean(initialData))
+  const [isPersisted, setIsPersisted] = useState(false)
+  const [isStorageLoading, setIsStorageLoading] = useState(true)
   const [isTableLoading, setIsTableLoading] = useState(false)
   const [globalFilter, setGlobalFilter] = useState('')
   const [includeLowResolutionAnalysis, setIncludeLowResolutionAnalysis] =
     useState(true)
   const [includeBlackBorderAnalysis, setIncludeBlackBorderAnalysis] =
+    useState(false)
+  const [includeSubfolders, setIncludeSubfolders] = useState(true)
+  const [isFolderBrowserDialogVisible, setIsFolderBrowserDialogVisible] =
     useState(false)
   const [folderPathTestSummary, setFolderPathTestSummary] =
     useState<FolderPathTestSummary | null>(null)
@@ -210,6 +254,53 @@ export function useVideoAuditController() {
   const [migrationResultError, setMigrationResultError] = useState<string | null>(
     null,
   )
+  const [showThumbnails, setShowThumbnails] = useState(true)
+  const [thumbnailCandidateRows, setThumbnailCandidateRows] = useState<
+    VideoRow[]
+  >([])
+  const [isThumbnailDialogVisible, setIsThumbnailDialogVisible] =
+    useState(false)
+  const [thumbnailScope, setThumbnailScope] =
+    useState<ThumbnailScope>('selected')
+  const [isGeneratingThumbnails, setIsGeneratingThumbnails] = useState(false)
+  const [thumbnailProgress, setThumbnailProgress] =
+    useState<ThumbnailProgress>(initialThumbnailProgress)
+  const [thumbnailResult, setThumbnailResult] =
+    useState<ThumbnailResultResponse | null>(null)
+
+  useEffect(() => {
+    let isMounted = true
+
+    void loadStoredVideoData()
+      .then((storedData) => {
+        if (!isMounted) {
+          return
+        }
+
+        if (storedData) {
+          setFileName(storedData.fileName)
+          setVideoRows(storedData.rows)
+          setStoredPayload(storedData.payload)
+          setAuditedRootDirectory(storedData.fileName)
+          setIsPersisted(true)
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setIsPersisted(false)
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsStorageLoading(false)
+        }
+      })
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+  const [thumbnailError, setThumbnailError] = useState<string | null>(null)
 
   const closeAuditEventSource = () => {
     auditEventSourceRef.current?.close()
@@ -224,6 +315,11 @@ export function useVideoAuditController() {
   const closeMigrationEventSource = () => {
     migrationEventSourceRef.current?.close()
     migrationEventSourceRef.current = null
+  }
+
+  const closeThumbnailEventSource = () => {
+    thumbnailEventSourceRef.current?.close()
+    thumbnailEventSourceRef.current = null
   }
 
   const checkPremiereStatus = useCallback(async () => {
@@ -287,6 +383,7 @@ export function useVideoAuditController() {
       closeAuditEventSource()
       closeAutoCropEventSource()
       closeMigrationEventSource()
+      closeThumbnailEventSource()
     }
   }, [])
 
@@ -327,6 +424,15 @@ export function useVideoAuditController() {
     )
   }
 
+  const updateThumbnailProgress = (
+    payload: ThumbnailProgressPayload,
+    status: ThumbnailProgress['status'] = 'running',
+  ) => {
+    setThumbnailProgress((currentProgress) =>
+      mergeThumbnailProgress(currentProgress, payload, status),
+    )
+  }
+
   const parseAuditRequestPayload = (
     payloadJson: string,
   ): AuditRequestPayload => {
@@ -342,12 +448,19 @@ export function useVideoAuditController() {
 
     const candidate = parsedPayload as Partial<AuditRequestPayload>
 
-    if (
-      typeof candidate.rootPath !== 'string' ||
-      !candidate.sampleFile ||
-      typeof candidate.sampleFile !== 'object' ||
-      Array.isArray(candidate.sampleFile)
-    ) {
+    const hasSelectedFolders =
+      Array.isArray(candidate.selectedFolders) &&
+      candidate.selectedFolders.length > 0 &&
+      candidate.selectedFolders.every(
+        (folderPath) => typeof folderPath === 'string',
+      )
+    const hasFolderPickerPayload =
+      typeof candidate.rootPath === 'string' &&
+      Boolean(candidate.sampleFile) &&
+      typeof candidate.sampleFile === 'object' &&
+      !Array.isArray(candidate.sampleFile)
+
+    if (!hasSelectedFolders && !hasFolderPickerPayload) {
       throw new Error('Saved refresh payload is not valid.')
     }
 
@@ -375,7 +488,7 @@ export function useVideoAuditController() {
     const displayDirectory =
       resolvedDirectory || result.summary.resolvedDirectory || 'selected folder'
     const nextFileName = `${displayDirectory}`
-    const persisted = saveVideoData({
+    const persisted = await saveVideoData({
       fileName: nextFileName,
       payload: requestPayloadJson,
       rows: trimmedRows,
@@ -415,7 +528,7 @@ export function useVideoAuditController() {
   const startAudit = async (requestPayloadJson: string) => {
     const requestPayload = parseAuditRequestPayload(requestPayloadJson)
 
-    await startAuditJob({
+    return startAuditJob({
       requestPayloadJson,
       resolveMessage: 'Resolving selected folder...',
       startRequest: () =>
@@ -435,7 +548,7 @@ export function useVideoAuditController() {
     requestPayloadJson: string | null
     resolveMessage: string
     startRequest: () => Promise<Response>
-  }) => {
+  }): Promise<boolean> => {
     try {
       closeAuditEventSource()
       setError(null)
@@ -534,6 +647,21 @@ export function useVideoAuditController() {
         })
       })
 
+      eventSource.addEventListener('canceled', (event) => {
+        const canceledPayload = JSON.parse(
+          (event as MessageEvent<string>).data,
+        ) as AuditProgressPayload
+        closeAuditEventSource()
+        setIsTableLoading(false)
+        updateAuditProgress(canceledPayload, 'canceled')
+        toast.current?.show({
+          severity: 'info',
+          summary: 'Audit canceled',
+          detail: 'The video scan was stopped.',
+          life: 3600,
+        })
+      })
+
       eventSource.addEventListener('error', (event) => {
         const maybeMessageEvent = event as MessageEvent<string>
         const hasServerPayload =
@@ -576,6 +704,8 @@ export function useVideoAuditController() {
           life: 5200,
         })
       })
+
+      return true
     } catch (caughtError) {
       closeAuditEventSource()
       const message =
@@ -596,11 +726,56 @@ export function useVideoAuditController() {
         detail: message,
         life: 5200,
       })
+
+      return false
+    }
+  }
+
+  const handleCancelAudit = async () => {
+    const jobId = auditProgress.jobId
+
+    if (!jobId || !isAuditActive) return
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/audits/${jobId}/cancel`, {
+        method: 'POST',
+      })
+      const payload = (await response.json()) as AuditProgressPayload
+
+      if (!response.ok || payload.status === 'not_found') {
+        throw new Error(payload.message || 'Unable to cancel the audit.')
+      }
+
+      closeAuditEventSource()
+      setIsTableLoading(false)
+      updateAuditProgress(payload, 'canceled')
+      toast.current?.show({
+        severity: 'info',
+        summary: 'Audit canceled',
+        detail: 'The video scan was stopped.',
+        life: 3600,
+      })
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error
+          ? caughtError.message
+          : 'Unable to cancel the audit.'
+
+      toast.current?.show({
+        severity: 'error',
+        summary: 'Cancel failed',
+        detail: message,
+        life: 4200,
+      })
     }
   }
 
   const handleOpenFolderPathTest = () => {
-    folderPathInputRef.current?.click()
+    setIsFolderBrowserDialogVisible(true)
+  }
+
+  const handleCloseFolderBrowserDialog = () => {
+    setIsFolderBrowserDialogVisible(false)
   }
 
   const handleOpenSelectedFilesAudit = () => {
@@ -609,11 +784,14 @@ export function useVideoAuditController() {
 
   const handleFolderPathSelect = async (event: ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(event.currentTarget.files ?? [])
-    const manifest = toFolderPathManifest(event.currentTarget.files)
+    const fullManifest = toFolderPathManifest(event.currentTarget.files)
+    const manifest = includeSubfolders
+      ? fullManifest
+      : fullManifest.filter(isDirectFolderVideo)
     const summary: FolderPathTestSummary = {
       totalSelectedFiles: selectedFiles.length,
       videoFileCount: manifest.length,
-      rootPath: manifest[0]?.rootPath ?? null,
+      rootPath: fullManifest[0]?.rootPath ?? manifest[0]?.rootPath ?? null,
       firstRelativePath: manifest[0]?.relativePath ?? null,
     }
 
@@ -621,7 +799,9 @@ export function useVideoAuditController() {
     event.currentTarget.value = ''
 
     if (manifest.length === 0) {
-      const message = 'The selected folder does not contain any video files.'
+      const message = includeSubfolders
+        ? 'The selected folder does not contain any video files.'
+        : 'The selected folder does not contain any videos directly inside it.'
       setError(message)
       toast.current?.show({
         severity: 'warn',
@@ -649,11 +829,63 @@ export function useVideoAuditController() {
     const requestPayload: AuditRequestPayload = {
       rootPath: sampleFile.rootPath,
       sampleFile,
+      includeSubfolders,
       includeLowResolutionAnalysis,
       includeBlackBorderAnalysis,
     }
 
     await startAudit(JSON.stringify(requestPayload))
+  }
+
+  const handleScanSelectedFolders = async (
+    selectedFolders: string[],
+    summary: {
+      selectedFolderCount: number
+      selectedVideoCount: number
+      selectedSizeBytes: number
+    },
+  ) => {
+    if (selectedFolders.length === 0) {
+      const message = 'Select at least one folder to scan.'
+
+      setError(message)
+      toast.current?.show({
+        severity: 'warn',
+        summary: 'No folders selected',
+        detail: message,
+        life: 4200,
+      })
+      return false
+    }
+
+    const requestPayload: AuditRequestPayload = {
+      selectedFolders,
+      scanOptions: {
+        includeSubfolders,
+        includeLowResolutionAnalysis,
+        includeBlackBorderAnalysis,
+      },
+    }
+
+    setFolderPathTestSummary({
+      totalSelectedFiles: summary.selectedVideoCount,
+      videoFileCount: summary.selectedVideoCount,
+      rootPath: 'Selected folders',
+      firstRelativePath: selectedFolders[0] ?? null,
+      selectedFolderCount: summary.selectedFolderCount,
+      totalSelectedSizeBytes: summary.selectedSizeBytes,
+    })
+
+    return startAuditJob({
+      requestPayloadJson: JSON.stringify(requestPayload),
+      resolveMessage: 'Preparing selected folders...',
+      startRequest: () =>
+        fetch(`${apiBaseUrl}/api/audits`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestPayload),
+        }),
+    })
   }
 
   const handleSelectedFilesSelect = async (
@@ -729,11 +961,12 @@ export function useVideoAuditController() {
     await startAudit(storedPayload)
   }
 
-  const handleClearData = () => {
+  const handleClearData = async () => {
     closeAuditEventSource()
     closeAutoCropEventSource()
     closeMigrationEventSource()
-    clearStoredVideoData()
+    closeThumbnailEventSource()
+    await clearStoredVideoData()
     setVideoRows(null)
     setSelectedVideos([])
     setFileName(null)
@@ -750,6 +983,7 @@ export function useVideoAuditController() {
     setAutoCropError(null)
     setIsAutoCropDialogVisible(false)
     setIsAutoCropSubmitting(false)
+    setIsFolderBrowserDialogVisible(false)
     setIsMigrationScanDialogVisible(false)
     setIsMigrationScanning(false)
     setMigrationNewEditedDir('')
@@ -759,6 +993,255 @@ export function useVideoAuditController() {
     setMigrationProgress(initialMigrationProgress)
     setMigrationResult(null)
     setMigrationResultError(null)
+    setThumbnailCandidateRows([])
+    setIsThumbnailDialogVisible(false)
+    setThumbnailScope('selected')
+    setIsGeneratingThumbnails(false)
+    setThumbnailProgress(initialThumbnailProgress)
+    setThumbnailResult(null)
+    setThumbnailError(null)
+  }
+
+  const handleOpenGenerateThumbnails = (tableRows: VideoRow[]) => {
+    if (tableRows.length === 0) {
+      const message = 'No videos are available for thumbnail generation.'
+
+      setThumbnailError(message)
+      toast.current?.show({
+        severity: 'warn',
+        summary: 'No videos found',
+        detail: message,
+        life: 4200,
+      })
+      return
+    }
+
+    closeThumbnailEventSource()
+    setThumbnailCandidateRows(tableRows)
+    setThumbnailScope(selectedVideos.length > 0 ? 'selected' : 'all')
+    setThumbnailProgress(initialThumbnailProgress)
+    setThumbnailResult(null)
+    setThumbnailError(null)
+    setIsGeneratingThumbnails(false)
+    setIsThumbnailDialogVisible(true)
+  }
+
+  const handleCloseGenerateThumbnailsDialog = () => {
+    if (isGeneratingThumbnails) {
+      return
+    }
+
+    setIsThumbnailDialogVisible(false)
+    setThumbnailError(null)
+    setThumbnailResult(null)
+    setThumbnailProgress(initialThumbnailProgress)
+  }
+
+  const handleCloseThumbnailResult = () => {
+    handleCloseGenerateThumbnailsDialog()
+  }
+
+  const getThumbnailScopeRows = (scope: ThumbnailScope) =>
+    scope === 'selected' && selectedVideos.length > 0
+      ? selectedVideos
+      : thumbnailCandidateRows
+
+  const persistThumbnailRows = (nextRows: VideoRow[]) => {
+    void saveVideoData({
+      fileName,
+      payload: storedPayload,
+      rows: nextRows,
+    }).then(setIsPersisted)
+  }
+
+  const applyThumbnailResult = (result: ThumbnailResultResponse) => {
+    setVideoRows((currentRows) => {
+      if (!currentRows) {
+        return currentRows
+      }
+
+      const nextRows = mergeThumbnailItems(currentRows, result.items)
+      persistThumbnailRows(nextRows)
+      return nextRows
+    })
+    setSelectedVideos((currentSelectedVideos) =>
+      mergeThumbnailItems(currentSelectedVideos, result.items),
+    )
+  }
+
+  const fetchThumbnailResult = async (jobId: string) => {
+    const response = await fetch(
+      `${apiBaseUrl}/api/thumbnails/jobs/${jobId}/result`,
+    )
+
+    if (!response.ok) {
+      throw new Error('Unable to fetch completed thumbnail results.')
+    }
+
+    const result = (await response.json()) as ThumbnailResultResponse
+
+    if (result.status !== 'complete' || !Array.isArray(result.items)) {
+      throw new Error('The thumbnail result was not complete.')
+    }
+
+    applyThumbnailResult(result)
+    setThumbnailResult(result)
+    setThumbnailProgress((currentProgress) => ({
+      ...currentProgress,
+      status: 'complete',
+      phase: 'complete',
+      totalVideos: result.summary.requested,
+      processedVideos: result.summary.requested,
+      generatedCount: result.summary.generated,
+      cachedCount: result.summary.cached,
+      failedCount: result.summary.failed,
+      currentFile: null,
+      message: 'Thumbnail generation complete.',
+    }))
+    toast.current?.show({
+      severity: result.summary.failed > 0 ? 'warn' : 'success',
+      summary: 'Thumbnail generation complete',
+      detail: `${result.summary.generated.toLocaleString()} generated, ${result.summary.cached.toLocaleString()} cached, ${result.summary.failed.toLocaleString()} failed.`,
+      life: 5200,
+    })
+  }
+
+  const handleStartThumbnailGeneration = async () => {
+    const rows = getThumbnailScopeRows(thumbnailScope)
+
+    if (rows.length === 0) {
+      setThumbnailError('No videos are available for thumbnail generation.')
+      return
+    }
+
+    closeThumbnailEventSource()
+    setIsGeneratingThumbnails(true)
+    setThumbnailError(null)
+    setThumbnailResult(null)
+    setThumbnailProgress({
+      ...initialThumbnailProgress,
+      status: 'starting',
+      phase: 'starting',
+      totalVideos: rows.length,
+      message: 'Starting thumbnail generation...',
+    })
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/thumbnails/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          videos: rows.map(toThumbnailRequestVideo),
+        }),
+      })
+      const payload = (await response.json()) as ThumbnailStartResponse
+
+      if (!response.ok || payload.status !== 'started' || !payload.jobId) {
+        throw new Error(
+          payload.message || 'Unable to start thumbnail generation.',
+        )
+      }
+
+      const jobId = payload.jobId
+
+      setThumbnailProgress({
+        ...initialThumbnailProgress,
+        jobId,
+        status: 'running',
+        phase: 'generating_thumbnails',
+        totalVideos: payload.totalVideos ?? rows.length,
+        message: 'Generating thumbnails...',
+      })
+
+      const eventSource = new EventSource(
+        `${apiBaseUrl}/api/thumbnails/jobs/${jobId}/events`,
+      )
+      thumbnailEventSourceRef.current = eventSource
+
+      eventSource.addEventListener('progress', (event) => {
+        const progressPayload = JSON.parse(
+          (event as MessageEvent<string>).data,
+        ) as ThumbnailProgressPayload
+        updateThumbnailProgress(progressPayload, 'running')
+      })
+
+      eventSource.addEventListener('complete', (event) => {
+        const completePayload = JSON.parse(
+          (event as MessageEvent<string>).data,
+        ) as ThumbnailProgressPayload
+        closeThumbnailEventSource()
+        updateThumbnailProgress(completePayload, 'complete')
+
+        void fetchThumbnailResult(jobId)
+          .catch((caughtError) => {
+            const message =
+              caughtError instanceof Error
+                ? caughtError.message
+                : 'Unable to load completed thumbnail results.'
+
+            setThumbnailError(message)
+            setThumbnailProgress((currentProgress) => ({
+              ...currentProgress,
+              status: 'error',
+              message,
+            }))
+            toast.current?.show({
+              severity: 'error',
+              summary: 'Thumbnail result failed',
+              detail: message,
+              life: 5200,
+            })
+          })
+          .finally(() => {
+            setIsGeneratingThumbnails(false)
+          })
+      })
+
+      eventSource.addEventListener('error', (event) => {
+        const maybeMessageEvent = event as MessageEvent<string>
+        const hasServerPayload =
+          typeof maybeMessageEvent.data === 'string' &&
+          maybeMessageEvent.data.length > 0
+
+        const errorPayload = hasServerPayload
+          ? (JSON.parse(maybeMessageEvent.data) as ThumbnailProgressPayload)
+          : null
+        const message =
+          errorPayload?.message ||
+          'Lost connection to the backend thumbnail progress stream.'
+
+        closeThumbnailEventSource()
+        setIsGeneratingThumbnails(false)
+        setThumbnailError(message)
+        updateThumbnailProgress(errorPayload ?? { message }, 'error')
+        toast.current?.show({
+          severity: 'error',
+          summary: 'Thumbnail generation failed',
+          detail: message,
+          life: 5200,
+        })
+      })
+    } catch (caughtError) {
+      closeThumbnailEventSource()
+      const message =
+        caughtError instanceof Error
+          ? caughtError.message
+          : 'Unable to start thumbnail generation.'
+
+      setIsGeneratingThumbnails(false)
+      setThumbnailError(message)
+      setThumbnailProgress((currentProgress) => ({
+        ...currentProgress,
+        status: 'error',
+        message,
+      }))
+      toast.current?.show({
+        severity: 'error',
+        summary: 'Thumbnail generation failed',
+        detail: message,
+        life: 5200,
+      })
+    }
   }
 
   const handleOpenMigrationDialog = () => {
@@ -1032,7 +1515,7 @@ export function useVideoAuditController() {
       )
       if (videoRows) {
         const nextRows = markRowsQueued(videoRows, queuedVideoPaths)
-        const persisted = saveVideoData({
+        const persisted = await saveVideoData({
           fileName,
           payload: storedPayload,
           rows: nextRows,
@@ -1525,20 +2008,29 @@ export function useVideoAuditController() {
   const auditPercent = getAuditPercent(auditProgress)
   const autoCropPercent = getAutoCropPercent(autoCropProgress)
   const migrationPercent = getMigrationPercent(migrationProgress)
+  const thumbnailPercent = getThumbnailPercent(thumbnailProgress)
   const isAuditVisible = auditProgress.status !== 'idle'
   const isAuditActive =
     auditProgress.status === 'starting' || auditProgress.status === 'running'
   const isMigrationActive = isMigrationScanning || isMigrationExecuting
+  const canGenerateThumbnails =
+    Boolean(videoRows?.length) &&
+    !isAuditActive &&
+    !isTableLoading &&
+    !isStorageLoading &&
+    !isGeneratingThumbnails
   const canExportToPremiere =
     selectedVideos.length > 0 &&
     premiereStatus?.status === 'ready' &&
     premierePresets.some(isPremierePresetAvailable) &&
     !isAuditActive &&
-    !isTableLoading
+    !isTableLoading &&
+    !isStorageLoading
   const canAutoCropSelected =
     selectedCropReviewVideos.length > 0 &&
     !isAuditActive &&
     !isTableLoading &&
+    !isStorageLoading &&
     !isAutoCropSubmitting &&
     !isPremiereImportSubmitting
   const canImportSelectedToPremiere =
@@ -1546,11 +2038,13 @@ export function useVideoAuditController() {
     premiereStatus?.status === 'ready' &&
     !isAuditActive &&
     !isTableLoading &&
+    !isStorageLoading &&
     !isPremiereImportSubmitting
   const canStartMigration =
     Boolean(auditedRootDirectory) &&
     !isAuditActive &&
     !isTableLoading &&
+    !isStorageLoading &&
     !isMigrationActive
 
   return {
@@ -1570,9 +2064,11 @@ export function useVideoAuditController() {
     handleCloseMigrationResult,
     handleCloseMigrationScan,
     handleClearData,
+    handleCancelAudit,
     checkPremiereStatus,
     handleCloseAutoCropDialog,
     handleCloseAutoCropResult,
+    handleCloseFolderBrowserDialog,
     handleClosePremiereExportDialog,
     handleFolderPathSelect,
     handleExecuteMigration,
@@ -1590,12 +2086,15 @@ export function useVideoAuditController() {
     handleSubmitPremiereImport,
     handleSubmitPremiereExport,
     handleSelectedFilesSelect,
+    handleScanSelectedFolders,
     includeLowResolutionAnalysis,
     includeBlackBorderAnalysis,
+    includeSubfolders,
     isAuditActive,
     isAuditVisible,
     isAutoCropDialogVisible,
     isAutoCropSubmitting,
+    isFolderBrowserDialogVisible,
     isPremiereImportSubmitting,
     isMigrationExecuting,
     isMigrationScanDialogVisible,
@@ -1604,6 +2103,7 @@ export function useVideoAuditController() {
     isPremiereExportSubmitting,
     isPersisted,
     isPremiereStatusLoading,
+    isStorageLoading,
     isTableLoading,
     migrationNewEditedDir,
     migrationPercent,
@@ -1620,16 +2120,33 @@ export function useVideoAuditController() {
     selectedAutoCropVideos: selectedCropReviewVideos,
     selectedVideos,
     selectedFilesInputRef,
-    canRefresh: Boolean(storedPayload),
+    canRefresh: Boolean(storedPayload) && !isStorageLoading,
     canAutoCropSelected,
     canImportSelectedToPremiere,
     canStartMigration,
     canExportToPremiere,
+    canGenerateThumbnails,
+    handleCloseGenerateThumbnailsDialog,
     setIncludeLowResolutionAnalysis,
     setIncludeBlackBorderAnalysis,
+    setIncludeSubfolders,
     setSelectedPremierePresetId,
     setSelectedVideos,
     setGlobalFilter,
+    handleCloseThumbnailResult,
+    handleOpenGenerateThumbnails,
+    handleStartThumbnailGeneration,
+    setShowThumbnails,
+    setThumbnailScope,
+    isGeneratingThumbnails,
+    isThumbnailDialogVisible,
+    showThumbnails,
+    thumbnailCandidateRows,
+    thumbnailError,
+    thumbnailPercent,
+    thumbnailProgress,
+    thumbnailResult,
+    thumbnailScope,
     toast,
     videoRows,
   }

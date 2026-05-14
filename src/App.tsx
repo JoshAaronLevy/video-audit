@@ -1,4 +1,4 @@
-import { Toast } from 'primereact/toast'
+// import { Toast } from 'primereact/toast'
 import { Message } from 'primereact/message'
 import { Button } from 'primereact/button'
 import 'primereact/resources/themes/lara-light-cyan/theme.css'
@@ -6,10 +6,12 @@ import 'primereact/resources/primereact.min.css'
 import 'primeflex/primeflex.css'
 import { AutoCropDialog } from './components/AutoCropDialog'
 import { DirectoryInput } from './components/DirectoryInput'
+import { FolderBrowserDialog } from './components/FolderBrowserDialog'
 import { MigrationResultDialog } from './components/MigrationResultDialog'
 import { MigrationScanDialog } from './components/MigrationScanDialog'
 import { PremiereExportDialog } from './components/PremiereExportDialog'
 import { PremiereStatusBanner } from './components/PremiereStatusBanner'
+import { ThumbnailGenerationDialog } from './components/ThumbnailGenerationDialog'
 import { UploadPanel } from './components/UploadPanel'
 import { VideoTable } from './components/VideoTable'
 import { useVideoAuditController } from './hooks/useVideoAuditController'
@@ -26,6 +28,7 @@ function App() {
     auditProgress,
     canAutoCropSelected,
     canExportToPremiere,
+    canGenerateThumbnails,
     canImportSelectedToPremiere,
     canRefresh,
     canStartMigration,
@@ -36,10 +39,14 @@ function App() {
     folderPathTestSummary,
     globalFilter,
     handleClearData,
+    handleCancelAudit,
     handleCloseMigrationDialog,
     handleCloseMigrationResult,
     handleCloseAutoCropDialog,
+    handleCloseFolderBrowserDialog,
+    handleCloseGenerateThumbnailsDialog,
     handleClosePremiereExportDialog,
+    handleCloseThumbnailResult,
     handleExecuteMigration,
     handleFolderPathSelect,
     handleMigrationNewEditedDirChange,
@@ -48,29 +55,36 @@ function App() {
     handleOpenFolderPathTest,
     handleOpenMigrationDialog,
     handleOpenPremiereExportDialog,
+    handleOpenGenerateThumbnails,
     handleOpenSelectedFilesAudit,
     handleRefreshData,
     handleSelectNewEditedFolderClick,
     handleStartMigrationScan,
     handleSubmitAutoCrop,
+    handleStartThumbnailGeneration,
     handleSubmitPremiereImport,
     handleSubmitPremiereExport,
     handleSelectedFilesSelect,
+    handleScanSelectedFolders,
     includeLowResolutionAnalysis,
     includeBlackBorderAnalysis,
+    includeSubfolders,
     isAuditActive,
-    isAuditVisible,
     isAutoCropDialogVisible,
     isAutoCropSubmitting,
+    isFolderBrowserDialogVisible,
     isPremiereImportSubmitting,
     isMigrationExecuting,
     isMigrationScanDialogVisible,
     isMigrationScanning,
     isPremiereExportDialogVisible,
     isPremiereExportSubmitting,
+    isGeneratingThumbnails,
+    isThumbnailDialogVisible,
     isPremiereStatusLoading,
     isPersisted,
     isTableLoading,
+    isStorageLoading,
     migrationNewEditedDir,
     migrationPercent,
     migrationProgress,
@@ -88,18 +102,28 @@ function App() {
     selectedFilesInputRef,
     setIncludeLowResolutionAnalysis,
     setIncludeBlackBorderAnalysis,
+    setIncludeSubfolders,
     setSelectedPremierePresetId,
     setSelectedVideos,
     setGlobalFilter,
-    toast,
+    setShowThumbnails,
+    setThumbnailScope,
+    showThumbnails,
+    thumbnailCandidateRows,
+    thumbnailError,
+    thumbnailPercent,
+    thumbnailProgress,
+    thumbnailResult,
+    thumbnailScope,
+    // toast,
     videoRows,
   } = useVideoAuditController()
-  const hasTableSurface = videoRows !== null || isTableLoading
+  const hasTableSurface = videoRows !== null || isTableLoading || isStorageLoading
   const tableError = hasTableSurface ? error : null
 
   return (
     <main className={`app-shell ${hasTableSurface ? 'has-data' : ''}`}>
-      <Toast ref={toast} position="top-center" />
+      {/* <Toast ref={toast} position="top-center" /> */}
 
       {premiereStatus?.status !== 'ready' && (
         <PremiereStatusBanner
@@ -118,15 +142,17 @@ function App() {
         folderPathTestSummary={folderPathTestSummary}
         includeLowResolutionAnalysis={includeLowResolutionAnalysis}
         includeBlackBorderAnalysis={includeBlackBorderAnalysis}
+        includeSubfolders={includeSubfolders}
         isAuditActive={isAuditActive}
-        isAuditVisible={isAuditVisible}
         onFolderAuditClick={handleOpenFolderPathTest}
         onFilesAuditClick={handleOpenSelectedFilesAudit}
+        onCancelAudit={handleCancelAudit}
         onFolderPathSelect={handleFolderPathSelect}
         onSelectedFilesSelect={handleSelectedFilesSelect}
+        onIncludeSubfoldersChange={setIncludeSubfolders}
         onIncludeLowResolutionAnalysisChange={setIncludeLowResolutionAnalysis}
         onIncludeBlackBorderAnalysisChange={setIncludeBlackBorderAnalysis}
-        videoRows={videoRows}
+        videoRows={isStorageLoading ? [] : videoRows}
       />
 
       {tableError ? (
@@ -162,21 +188,26 @@ function App() {
           <VideoTable
             canAutoCropSelected={canAutoCropSelected}
             canExportToPremiere={canExportToPremiere}
+            canGenerateThumbnails={canGenerateThumbnails}
             canStartMigration={canStartMigration}
             canRefresh={canRefresh}
             fileName={fileName}
             globalFilter={globalFilter}
             isAuditActive={isAuditActive}
-            isLoading={isTableLoading}
+            isLoading={isTableLoading || isStorageLoading}
+            isGeneratingThumbnails={isGeneratingThumbnails}
             isPersisted={isPersisted}
             onClearData={handleClearData}
             onAutoCropSelectedClick={handleOpenAutoCropDialog}
             onExportToPremiereClick={handleOpenPremiereExportDialog}
+            onGenerateThumbnailsClick={handleOpenGenerateThumbnails}
             onMigrateNewEditsClick={handleOpenMigrationDialog}
             onGlobalFilterChange={setGlobalFilter}
             onRefreshData={handleRefreshData}
             onSelectedVideosChange={setSelectedVideos}
+            onShowThumbnailsChange={setShowThumbnails}
             selectedVideos={selectedVideos}
+            showThumbnails={showThumbnails}
             videoRows={videoRows ?? []}
           />
         )
@@ -206,6 +237,13 @@ function App() {
         visible={isAutoCropDialogVisible}
       />
 
+      <FolderBrowserDialog
+        isAuditActive={isAuditActive}
+        onHide={handleCloseFolderBrowserDialog}
+        onScanSelectedFolders={handleScanSelectedFolders}
+        visible={isFolderBrowserDialogVisible}
+      />
+
       <PremiereExportDialog
         error={premiereExportError}
         isSubmitting={isPremiereExportSubmitting}
@@ -216,6 +254,25 @@ function App() {
         selectedCount={selectedVideos.length}
         selectedPresetId={selectedPremierePresetId}
         visible={isPremiereExportDialogVisible}
+      />
+
+      <ThumbnailGenerationDialog
+        allCount={thumbnailCandidateRows.length}
+        error={thumbnailError}
+        isGenerating={isGeneratingThumbnails}
+        onHide={
+          thumbnailResult
+            ? handleCloseThumbnailResult
+            : handleCloseGenerateThumbnailsDialog
+        }
+        onScopeChange={setThumbnailScope}
+        onStart={handleStartThumbnailGeneration}
+        progress={thumbnailProgress}
+        result={thumbnailResult}
+        selectedCount={selectedVideos.length}
+        thumbnailPercent={thumbnailPercent}
+        thumbnailScope={thumbnailScope}
+        visible={isThumbnailDialogVisible}
       />
 
       <MigrationScanDialog

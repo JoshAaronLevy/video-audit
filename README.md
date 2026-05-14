@@ -26,6 +26,18 @@ npm run dev
 
 The frontend runs through Vite. The backend serves the local API used for folder audits and Premiere bridge requests.
 
+## Folder Tree Selection
+
+The backend can report and scan the local edited-video tree rooted at:
+
+```txt
+/Volumes/SanDisk SSD/Videos/Edited
+```
+
+`GET /api/folders/default-root` reports whether that default SanDisk edited-video folder is available. `GET /api/folders/tree` returns the full folder tree for local-only use, with folders only as nodes. Recursive counts and sizes are based only on supported video files.
+
+Audits can also be started with `selectedFolders` to scan a subset of that tree while preserving the existing scan options for resolution analysis, black-border analysis, or both. Supported audit/tree formats include `.mp4`, `.mov`, `.m4v`, `.mkv`, `.avi`, `.wmv`, `.webm`, `.mpeg`, `.mpg`, `.m2ts`, and `.ts`. Audit scans never modify source files.
+
 ## Premiere Bridge
 
 The Premiere workflow uses a simple filesystem bridge:
@@ -69,6 +81,38 @@ Auto-crop is a separate backend workflow from the Premiere bridge. It uses FFmpe
 ```
 
 Output filenames match the selected source filenames. The backend writes `manifest.in-progress.json` during the run and renames it to `manifest.json` when complete. Source files are never modified, overwritten, deleted, or cropped in place. Cropped outputs can later be scanned or selected for the Premiere export workflow if needed.
+
+## Thumbnail Generation
+
+Thumbnails are generated on demand after audit results are loaded. The audit scan does not generate thumbnails; the frontend starts a separate `POST /api/thumbnails/generate` job with the explicit video rows it wants processed, then follows progress at `/api/thumbnails/jobs/:jobId/events` and reads final metadata from `/api/thumbnails/jobs/:jobId/result`.
+
+The backend uses FFmpeg to extract one JPEG frame per requested video and caches generated files in:
+
+```txt
+~/VideoAudit/thumbnails/
+```
+
+Override the cache location with:
+
+```txt
+VIDEO_AUDIT_THUMBNAIL_DIR=/absolute/path/to/thumbnails
+```
+
+Source video files are never modified, and thumbnails are never written into source or audited folders. Repeated generation requests reuse cached thumbnails when the source path, modified time, and size match a previously generated thumbnail.
+
+## Preview Frames / Additional Thumbnails
+
+Preview frames are generated on demand for one video at a time, intended for the video details modal. The backend exposes `POST /api/thumbnails/preview-frames`; it does not generate preview frames during an audit or for every table row.
+
+The number of returned frames depends on the video duration. `additional` mode fills any missing default preview frames up to that allowed count and returns the complete ordered default set. `fresh` mode creates a new batch from different timestamp positions so the UI can replace the currently displayed carousel with a new set.
+
+Preview frames are JPEG thumbnails cached under the existing thumbnail cache directory:
+
+```txt
+~/VideoAudit/thumbnails/
+```
+
+They are served from the same `/api/thumbnails/...` static route as table thumbnails. Source video files are never modified, and preview frames are never written into source video folders.
 
 ## Video Migration / Replacement
 

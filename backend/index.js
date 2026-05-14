@@ -7,7 +7,11 @@ const express = require("express");
 const multer = require("multer");
 require("dotenv").config();
 
-const { auditSelectedVideoFiles, auditVideos } = require("./utils/fileAudit");
+const {
+  auditSelectedFolders,
+  auditSelectedVideoFiles,
+  auditVideos,
+} = require("./utils/fileAudit");
 const {
   runAutoCrop,
   validateAutoCropRequest,
@@ -16,6 +20,17 @@ const {
   executeMigration,
   scanMigration,
 } = require("./utils/videoMigration");
+const {
+  THUMBNAIL_DIR,
+  dedupeThumbnailVideos,
+  generatePreviewFrames,
+  generateThumbnails,
+} = require("./utils/thumbnails");
+const {
+  buildFolderTree,
+  inspectRoot,
+} = require("./utils/folderTree");
+const { SUPPORTED_VIDEO_EXTENSIONS } = require("./utils/videoExtensions");
 const {
   createPremiereExportRequest,
   createPremiereImportRequest,
@@ -28,13 +43,22 @@ const DEFAULT_SEARCH_ROOTS = [
   "/Users/joshlevy/Movies",
   "/Users/joshlevy/Movies/Edited",
 ];
+const DEFAULT_VIDEO_TREE_ROOT = "/Volumes/SanDisk SSD/Videos/Edited";
+const DEFAULT_VIDEO_TREE_LABEL = "SanDisk Edited Videos";
+const REQUIRED_EDITED_FOLDER = DEFAULT_VIDEO_TREE_ROOT;
 const SYSTEM_DIRECTORY_NAMES = new Set([
   ".Spotlight-V100",
   ".Trashes",
   ".fseventsd",
   ".TemporaryItems",
   "System Volume Information",
+  ".git",
   "node_modules",
+  ".video-audit-temp",
+  ".video-audit-trash",
+  ".video-audit-cleanup-runs",
+  "Archive",
+  "archived-files",
 ]);
 
 const PORT = Number(process.env.PORT || 3001);
@@ -52,6 +76,23 @@ const jobs = new Map();
 const autoCropJobs = new Map();
 const migrationPlans = new Map();
 const migrationJobs = new Map();
+const thumbnailJobs = new Map();
+
+async function getRequiredEditedFolderStatus() {
+  const status = await inspectRoot(
+    DEFAULT_VIDEO_TREE_ROOT,
+    DEFAULT_VIDEO_TREE_LABEL
+  );
+
+  return {
+    status: status.available ? "ready" : "not_found",
+    path: status.defaultRoot,
+    message: status.message,
+    defaultRoot: status.defaultRoot,
+    available: status.available,
+    label: status.label,
+  };
+}
 
 function getSearchRoots() {
   const configuredRoots = process.env.SEARCH_ROOTS
@@ -61,6 +102,120 @@ function getSearchRoots() {
     : DEFAULT_SEARCH_ROOTS;
 
   return Array.from(new Set(configuredRoots));
+}
+
+function normalizeAbsolutePath(value) {
+  return path.resolve(value);
+}
+
+function isSamePath(left, right) {
+  return normalizeAbsolutePath(left) === normalizeAbsolutePath(right);
+}
+
+function isPathInside(parentPath, childPath) {
+  const relativePath = path.relative(
+    normalizeAbsolutePath(parentPath),
+    normalizeAbsolutePath(childPath)
+  );
+
+  return (
+    Boolean(relativePath) &&
+    !relativePath.startsWith("..") &&
+    !path.isAbsolute(relativePath)
+  );
+}
+
+function isPathAtOrInside(parentPath, childPath) {
+  return isSamePath(parentPath, childPath) || isPathInside(parentPath, childPath);
+}
+
+function getAllowedFolderRoots() {
+  return Array.from(
+    new Set([DEFAULT_VIDEO_TREE_ROOT, ...getSearchRoots()].map(normalizeAbsolutePath))
+  );
+}
+
+function isUnderAllowedFolderRoot(folderPath) {
+  return getAllowedFolderRoots().some((rootPath) =>
+    isPathAtOrInside(rootPath, folderPath)
+  );
+}
+
+function getSharedAllowedRoot(folderPaths) {
+  const allowedRoots = getAllowedFolderRoots().sort(
+    (left, right) => right.length - left.length
+  );
+
+  return (
+    allowedRoots.find((rootPath) =>
+      folderPaths.every((folderPath) => isPathAtOrInside(rootPath, folderPath))
+    ) || normalizeAbsolutePath(DEFAULT_VIDEO_TREE_ROOT)
+  );
+}
+
+function resolveRequestedTreeRoot(value) {
+  if (value === undefined || value === null || value === "") {
+    return normalizeAbsolutePath(DEFAULT_VIDEO_TREE_ROOT);
+  }
+
+  if (typeof value !== "string" || !path.isAbsolute(value)) {
+    return null;
+  }
+
+  const requestedRoot = normalizeAbsolutePath(value);
+
+  return isUnderAllowedFolderRoot(requestedRoot) ? requestedRoot : null;
+}
+
+function getSelectedFolders(body) {
+  return Array.isArray(body?.selectedFolders) ? body.selectedFolders : [];
+}
+
+function getAuditOptions(body) {
+  const scanOptions =
+    body && typeof body.scanOptions === "object" && body.scanOptions
+      ? body.scanOptions
+      : {};
+
+  return {
+    includeLowResolutionAnalysis:
+      body.includeLowResolutionAnalysis ??
+      scanOptions.includeLowResolutionAnalysis ??
+      true,
+    includeBlackBorderAnalysis:
+      body.includeBlackBorderAnalysis ??
+      scanOptions.includeBlackBorderAnalysis ??
+      false,
+    includeSubfolders:
+      body.includeSubfolders ?? scanOptions.includeSubfolders ?? true,
+  };
+}
+
+function dedupeOverlappingFolders(folders) {
+  const sortedFolders = Array.from(new Set(folders.map(normalizeAbsolutePath))).sort(
+    (left, right) => {
+      const depthDelta =
+        left.split(path.sep).filter(Boolean).length -
+        right.split(path.sep).filter(Boolean).length;
+
+      return depthDelta || left.localeCompare(right);
+    }
+  );
+  const selectedFolders = [];
+
+  for (const folder of sortedFolders) {
+    if (
+      selectedFolders.some((parentFolder) =>
+        isPathAtOrInside(parentFolder, folder)
+      )
+    ) {
+      continue;
+    }
+
+    selectedFolders.push(folder);
+  }
+
+  return selectedFolders;
 }
 
 function isSafeRelativePath(value) {
@@ -179,6 +334,10 @@ async function findMatchingFilesUnderRoot({ searchRoot, sampleFile }) {
     for (const entry of entries) {
       const fullPath = path.join(currentDir, entry.name);
 
+      if (entry.isSymbolicLink()) {
+        continue;
+      }
+
       if (entry.isDirectory()) {
         if (SYSTEM_DIRECTORY_NAMES.has(entry.name)) {
           continue;
@@ -205,39 +364,68 @@ function validateAuditRequest(body) {
     return "Request body is required.";
   }
 
-  if (!isSafeRelativePath(body.rootPath)) {
-    return "rootPath must be a relative folder path.";
+  const selectedFolders = getSelectedFolders(body);
+  const hasSelectedFolders = selectedFolders.length > 0;
+
+  if (hasSelectedFolders) {
+    if (
+      selectedFolders.some(
+        (folderPath) =>
+          typeof folderPath !== "string" ||
+          folderPath.trim() === "" ||
+          !path.isAbsolute(folderPath)
+      )
+    ) {
+      return "selectedFolders must contain absolute folder paths.";
+    }
+  } else {
+    if (!isSafeRelativePath(body.rootPath)) {
+      return "rootPath must be a relative folder path.";
+    }
+
+    if (!body.sampleFile || typeof body.sampleFile !== "object") {
+      return "sampleFile is required.";
+    }
+
+    if (!body.sampleFile.fileName || typeof body.sampleFile.fileName !== "string") {
+      return "sampleFile.fileName is required.";
+    }
+
+    if (!isSafeRelativePath(body.sampleFile.relativePath)) {
+      return "sampleFile.relativePath must be a relative file path.";
+    }
   }
 
-  if (!body.sampleFile || typeof body.sampleFile !== "object") {
-    return "sampleFile is required.";
-  }
-
-  if (!body.sampleFile.fileName || typeof body.sampleFile.fileName !== "string") {
-    return "sampleFile.fileName is required.";
-  }
-
-  if (!isSafeRelativePath(body.sampleFile.relativePath)) {
-    return "sampleFile.relativePath must be a relative file path.";
-  }
+  const {
+    includeLowResolutionAnalysis,
+    includeBlackBorderAnalysis,
+    includeSubfolders,
+  } = getAuditOptions(body);
 
   if (
-    body.includeBlackBorderAnalysis !== undefined &&
-    typeof body.includeBlackBorderAnalysis !== "boolean"
+    includeBlackBorderAnalysis !== undefined &&
+    typeof includeBlackBorderAnalysis !== "boolean"
   ) {
     return "includeBlackBorderAnalysis must be a boolean when provided.";
   }
 
   if (
-    body.includeLowResolutionAnalysis !== undefined &&
-    typeof body.includeLowResolutionAnalysis !== "boolean"
+    includeLowResolutionAnalysis !== undefined &&
+    typeof includeLowResolutionAnalysis !== "boolean"
   ) {
     return "includeLowResolutionAnalysis must be a boolean when provided.";
   }
 
   if (
-    body.includeLowResolutionAnalysis === false &&
-    body.includeBlackBorderAnalysis !== true
+    includeSubfolders !== undefined &&
+    typeof includeSubfolders !== "boolean"
+  ) {
+    return "includeSubfolders must be a boolean when provided.";
+  }
+
+  if (
+    includeLowResolutionAnalysis === false &&
+    includeBlackBorderAnalysis !== true
   ) {
     return "At least one audit option must be selected.";
   }
@@ -404,11 +592,75 @@ async function resolveSelectedFolder({ rootPath, sampleFile }) {
   return Array.from(matches.values());
 }
 
+async function resolveSelectedFolders(selectedFolders) {
+  const invalidFolders = [];
+  const resolvedFolders = [];
+
+  for (const selectedFolder of selectedFolders) {
+    const folderPath = normalizeAbsolutePath(selectedFolder);
+
+    if (!isUnderAllowedFolderRoot(folderPath)) {
+      invalidFolders.push({
+        path: selectedFolder,
+        reason: "outside_allowed_roots",
+      });
+      continue;
+    }
+
+    let stats;
+
+    try {
+      stats = await fs.lstat(folderPath);
+    } catch (error) {
+      invalidFolders.push({
+        path: selectedFolder,
+        reason: error && error.code === "ENOENT" ? "missing" : "unavailable",
+        error: error instanceof Error ? error.message : String(error),
+      });
+      continue;
+    }
+
+    if (stats.isSymbolicLink()) {
+      invalidFolders.push({
+        path: selectedFolder,
+        reason: "symlink",
+      });
+      continue;
+    }
+
+    if (!stats.isDirectory()) {
+      invalidFolders.push({
+        path: selectedFolder,
+        reason: "not_directory",
+      });
+      continue;
+    }
+
+    resolvedFolders.push(folderPath);
+  }
+
+  if (invalidFolders.length > 0) {
+    return {
+      ok: false,
+      error: "One or more selected folders could not be audited.",
+      invalidFolders,
+    };
+  }
+
+  return {
+    ok: true,
+    folders: dedupeOverlappingFolders(resolvedFolders),
+    rootDirectory: getSharedAllowedRoot(resolvedFolders),
+  };
+}
+
 function createJob({
   resolvedDirectory,
   selectedFiles = null,
+  selectedFolders = null,
   includeLowResolutionAnalysis = true,
   includeBlackBorderAnalysis = false,
+  includeSubfolders = true,
 }) {
   const id = crypto.randomUUID();
   const job = {
@@ -425,9 +677,12 @@ function createJob({
     message: "Selected folder resolved.",
     result: null,
     error: null,
+    abortController: new AbortController(),
     includeLowResolutionAnalysis,
     includeBlackBorderAnalysis,
+    includeSubfolders,
     selectedFiles,
+    selectedFolders,
     listeners: new Set(),
   };
 
@@ -451,8 +706,12 @@ function serializeJob(job) {
     error: job.error,
     includeLowResolutionAnalysis: job.includeLowResolutionAnalysis,
     includeBlackBorderAnalysis: job.includeBlackBorderAnalysis,
+    includeSubfolders: job.includeSubfolders,
     selectedFileCount: Array.isArray(job.selectedFiles)
       ? job.selectedFiles.length
+      : null,
+    selectedFolderCount: Array.isArray(job.selectedFolders)
+      ? job.selectedFolders.length
       : null,
   };
 }
@@ -491,7 +750,26 @@ async function runAuditJob(jobId) {
           rootDirectoryPath: job.resolvedDirectory,
           includeLowResolutionAnalysis: job.includeLowResolutionAnalysis,
           includeBlackBorderAnalysis: job.includeBlackBorderAnalysis,
+          signal: job.abortController.signal,
           onProgress(progress) {
+            if (job.abortController.signal.aborted) return;
+            updateJobFromProgress(job, progress);
+
+            if (progress.phase !== "complete") {
+              broadcast(job, "progress");
+            }
+          },
+        })
+      : Array.isArray(job.selectedFolders)
+      ? await auditSelectedFolders({
+          folders: job.selectedFolders,
+          rootDirectoryPath: job.resolvedDirectory,
+          includeLowResolutionAnalysis: job.includeLowResolutionAnalysis,
+          includeBlackBorderAnalysis: job.includeBlackBorderAnalysis,
+          includeSubfolders: job.includeSubfolders,
+          signal: job.abortController.signal,
+          onProgress(progress) {
+            if (job.abortController.signal.aborted) return;
             updateJobFromProgress(job, progress);
 
             if (progress.phase !== "complete") {
@@ -503,7 +781,10 @@ async function runAuditJob(jobId) {
           directoryPath: job.resolvedDirectory,
           includeLowResolutionAnalysis: job.includeLowResolutionAnalysis,
           includeBlackBorderAnalysis: job.includeBlackBorderAnalysis,
+          includeSubfolders: job.includeSubfolders,
+          signal: job.abortController.signal,
           onProgress(progress) {
+            if (job.abortController.signal.aborted) return;
             updateJobFromProgress(job, progress);
 
             if (progress.phase !== "complete") {
@@ -511,6 +792,16 @@ async function runAuditJob(jobId) {
             }
           },
         });
+
+    if (job.abortController.signal.aborted) {
+      job.status = "canceled";
+      job.phase = "canceled";
+      job.currentFile = "";
+      job.message = "Audit canceled.";
+
+      broadcast(job, "canceled", serializeJob(job));
+      return;
+    }
 
     job.status = "complete";
     job.phase = "complete";
@@ -533,6 +824,20 @@ async function runAuditJob(jobId) {
       message: job.message,
     });
   } catch (error) {
+    if (
+      job.abortController.signal.aborted ||
+      error.name === "AbortError" ||
+      error.message === "Audit canceled."
+    ) {
+      job.status = "canceled";
+      job.phase = "canceled";
+      job.currentFile = "";
+      job.message = "Audit canceled.";
+
+      broadcast(job, "canceled", serializeJob(job));
+      return;
+    }
+
     job.status = "error";
     job.phase = "error";
     job.error = error.message;
@@ -756,6 +1061,107 @@ async function runMigrationJob(migrationId) {
   }
 }
 
+function createThumbnailJob(videos) {
+  const uniqueVideos = dedupeThumbnailVideos(videos);
+  const id = crypto.randomUUID();
+  const job = {
+    id,
+    status: "queued",
+    phase: "queued",
+    totalVideos: uniqueVideos.length,
+    processedVideos: 0,
+    generatedCount: 0,
+    cachedCount: 0,
+    failedCount: 0,
+    currentFile: "",
+    message: "Thumbnail generation job queued.",
+    videos: uniqueVideos,
+    result: null,
+    error: null,
+    listeners: new Set(),
+  };
+
+  thumbnailJobs.set(id, job);
+  return job;
+}
+
+function serializeThumbnailJob(job) {
+  return {
+    jobId: job.id,
+    status: job.status,
+    phase: job.phase,
+    totalVideos: job.totalVideos,
+    processedVideos: job.processedVideos,
+    generatedCount: job.generatedCount,
+    cachedCount: job.cachedCount,
+    failedCount: job.failedCount,
+    currentFile: job.currentFile,
+    message: job.message,
+    error: job.error,
+  };
+}
+
+function broadcastThumbnail(job, eventName, data = serializeThumbnailJob(job)) {
+  for (const listener of job.listeners) {
+    listener(eventName, data);
+  }
+}
+
+function updateThumbnailJobFromProgress(job, progress) {
+  job.status = progress.phase === "complete" ? "complete" : "running";
+  job.phase = progress.phase ?? job.phase;
+  job.totalVideos = progress.totalVideos ?? job.totalVideos;
+  job.processedVideos = progress.processedVideos ?? job.processedVideos;
+  job.generatedCount = progress.generatedCount ?? job.generatedCount;
+  job.cachedCount = progress.cachedCount ?? job.cachedCount;
+  job.failedCount = progress.failedCount ?? job.failedCount;
+  job.currentFile = progress.currentFile ?? job.currentFile;
+  job.message = progress.message ?? job.message;
+}
+
+async function runThumbnailJob(jobId) {
+  const job = thumbnailJobs.get(jobId);
+  if (!job) return;
+
+  job.status = "running";
+  job.phase = "generating_thumbnails";
+  job.message = "Generating thumbnails...";
+  broadcastThumbnail(job, "progress");
+
+  try {
+    const result = await generateThumbnails({
+      videos: job.videos,
+      onProgress(progress) {
+        updateThumbnailJobFromProgress(job, progress);
+
+        if (progress.phase !== "complete") {
+          broadcastThumbnail(job, "progress");
+        }
+      },
+    });
+
+    job.status = "complete";
+    job.phase = "complete";
+    job.totalVideos = result.summary.requested;
+    job.processedVideos = result.summary.requested;
+    job.generatedCount = result.summary.generated;
+    job.cachedCount = result.summary.cached;
+    job.failedCount = result.summary.failed;
+    job.currentFile = "";
+    job.message = "Thumbnail generation complete.";
+    job.result = result;
+
+    broadcastThumbnail(job, "complete", serializeThumbnailJob(job));
+  } catch (error) {
+    job.status = "error";
+    job.phase = "error";
+    job.error = error.message;
+    job.message = error.message;
+
+    broadcastThumbnail(job, "error", serializeThumbnailJob(job));
+  }
+}
+
 const app = express();
 
 app.use(
@@ -774,6 +1180,240 @@ app.use(express.json({ limit: "1mb" }));
 
 app.get("/api/health", (req, res) => {
   res.json({ ok: true });
+});
+
+app.get("/api/folders/default-root", async (req, res) => {
+  try {
+    const status = await getRequiredEditedFolderStatus();
+
+    res.json({
+      defaultRoot: status.defaultRoot,
+      available: status.available,
+      label: status.label,
+      message: status.message,
+      supportedVideoExtensions: SUPPORTED_VIDEO_EXTENSIONS,
+    });
+  } catch (error) {
+    res.status(500).json({
+      defaultRoot: DEFAULT_VIDEO_TREE_ROOT,
+      available: false,
+      label: DEFAULT_VIDEO_TREE_LABEL,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unable to check default video folder.",
+      supportedVideoExtensions: SUPPORTED_VIDEO_EXTENSIONS,
+    });
+  }
+});
+
+app.get("/api/folders/tree", async (req, res) => {
+  const requestedRoot = resolveRequestedTreeRoot(req.query.root);
+
+  if (!requestedRoot) {
+    res.status(400).json({
+      status: "invalid_request",
+      message:
+        "root must be an absolute folder path under the configured video search roots.",
+      defaultRoot: DEFAULT_VIDEO_TREE_ROOT,
+    });
+    return;
+  }
+
+  try {
+    const tree = await buildFolderTree({
+      rootPath: requestedRoot,
+      label: DEFAULT_VIDEO_TREE_LABEL,
+    });
+
+    res.json(tree);
+  } catch (error) {
+    res.status(500).json({
+      root: {
+        path: requestedRoot,
+        name: path.basename(requestedRoot),
+        available: false,
+        label: DEFAULT_VIDEO_TREE_LABEL,
+      },
+      generatedAt: new Date().toISOString(),
+      supportedVideoExtensions: SUPPORTED_VIDEO_EXTENSIONS,
+      summary: {
+        folderCount: 0,
+        videoCount: 0,
+        totalVideoSizeBytes: 0,
+      },
+      nodes: [],
+      warnings: [],
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unable to build folder tree.",
+    });
+  }
+});
+
+app.post("/api/thumbnails/generate", (req, res) => {
+  if (!req.body || typeof req.body !== "object") {
+    res.status(400).json({
+      status: "invalid_request",
+      message: "Request body is required.",
+    });
+    return;
+  }
+
+  if (!Array.isArray(req.body.videos) || req.body.videos.length === 0) {
+    res.status(400).json({
+      status: "invalid_request",
+      message: "videos must be a non-empty array.",
+    });
+    return;
+  }
+
+  const job = createThumbnailJob(req.body.videos);
+
+  setImmediate(() => {
+    runThumbnailJob(job.id);
+  });
+
+  res.status(202).json({
+    jobId: job.id,
+    status: "started",
+    totalVideos: job.totalVideos,
+  });
+});
+
+app.get("/api/thumbnails/jobs/:jobId/events", (req, res) => {
+  const job = thumbnailJobs.get(req.params.jobId);
+
+  if (!job) {
+    res.status(404).json({
+      status: "not_found",
+      message: "Thumbnail job not found.",
+    });
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+
+  const listener = (eventName, data) => {
+    sendSse(res, eventName, data);
+
+    if (
+      eventName === "complete" ||
+      eventName === "error" ||
+      eventName === "canceled"
+    ) {
+      job.listeners.delete(listener);
+      res.end();
+    }
+  };
+
+  job.listeners.add(listener);
+  sendSse(res, "progress", serializeThumbnailJob(job));
+
+  if (job.status === "complete") {
+    listener("complete", serializeThumbnailJob(job));
+    return;
+  }
+
+  if (job.status === "error") {
+    listener("error", serializeThumbnailJob(job));
+    return;
+  }
+
+  req.on("close", () => {
+    job.listeners.delete(listener);
+  });
+});
+
+app.get("/api/thumbnails/jobs/:jobId/result", (req, res) => {
+  const job = thumbnailJobs.get(req.params.jobId);
+
+  if (!job) {
+    res.status(404).json({
+      status: "not_found",
+      message: "Thumbnail job not found.",
+    });
+    return;
+  }
+
+  if (job.status !== "complete") {
+    res.json({
+      jobId: job.id,
+      status: job.status,
+      message: "Thumbnail generation is not complete yet.",
+    });
+    return;
+  }
+
+  res.json({
+    jobId: job.id,
+    status: job.status,
+    summary: job.result.summary,
+    thumbnailDir: job.result.thumbnailDir,
+    items: job.result.items,
+  });
+});
+
+app.post("/api/thumbnails/preview-frames", async (req, res) => {
+  if (!req.body || typeof req.body !== "object") {
+    res.status(400).json({
+      status: "invalid_request",
+      message: "Request body is required.",
+    });
+    return;
+  }
+
+  try {
+    const result = await generatePreviewFrames({
+      video: req.body.video,
+      mode: req.body.mode,
+    });
+
+    res.json(result);
+  } catch (error) {
+    const statusCode = error.statusCode || 500;
+    res.status(statusCode).json({
+      status: statusCode === 400 ? "invalid_request" : "error",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unable to generate preview frames.",
+    });
+  }
+});
+
+app.use("/api/thumbnails", express.static(THUMBNAIL_DIR));
+
+app.get("/api/storage/edited-folder/status", async (req, res) => {
+  try {
+    const status = await getRequiredEditedFolderStatus();
+    console.log("[Storage] Edited folder status result.", {
+      status: status.status,
+      path: status.path,
+      message: status.message,
+    });
+    res.json(status);
+  } catch (error) {
+    console.error("[Storage] Edited folder status endpoint failed.", {
+      path: REQUIRED_EDITED_FOLDER,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unable to check edited videos folder status.",
+    });
+    res.status(500).json({
+      status: "error",
+      path: REQUIRED_EDITED_FOLDER,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unable to check edited videos folder status.",
+    });
+  }
 });
 
 app.get("/api/premiere/status", async (req, res) => {
@@ -1100,11 +1740,48 @@ app.post("/api/audits", async (req, res) => {
   }
 
   const {
-    rootPath,
-    sampleFile,
-    includeLowResolutionAnalysis = true,
-    includeBlackBorderAnalysis = false,
-  } = req.body;
+    includeLowResolutionAnalysis,
+    includeBlackBorderAnalysis,
+    includeSubfolders,
+  } = getAuditOptions(req.body);
+  const selectedFolders = getSelectedFolders(req.body);
+
+  if (selectedFolders.length > 0) {
+    const selectedFolderResult = await resolveSelectedFolders(selectedFolders);
+
+    if (!selectedFolderResult.ok) {
+      res.status(400).json({
+        status: "invalid_request",
+        message: selectedFolderResult.error,
+        invalidFolders: selectedFolderResult.invalidFolders,
+      });
+      return;
+    }
+
+    const job = createJob({
+      resolvedDirectory: selectedFolderResult.rootDirectory,
+      selectedFolders: selectedFolderResult.folders,
+      includeLowResolutionAnalysis,
+      includeBlackBorderAnalysis,
+      includeSubfolders,
+    });
+
+    job.message = "Selected folders prepared.";
+
+    setImmediate(() => {
+      runAuditJob(job.id);
+    });
+
+    res.status(202).json({
+      jobId: job.id,
+      status: "started",
+      resolvedDirectory: job.resolvedDirectory,
+      selectedFolderCount: selectedFolderResult.folders.length,
+    });
+    return;
+  }
+
+  const { rootPath, sampleFile } = req.body;
   const matches = await resolveSelectedFolder({ rootPath, sampleFile });
 
   if (matches.length === 0) {
@@ -1128,6 +1805,7 @@ app.post("/api/audits", async (req, res) => {
     resolvedDirectory: matches[0].resolvedDirectory,
     includeLowResolutionAnalysis,
     includeBlackBorderAnalysis,
+    includeSubfolders,
   });
 
   setImmediate(() => {
@@ -1276,9 +1954,45 @@ app.get("/api/audits/:jobId/events", (req, res) => {
     return;
   }
 
+  if (job.status === "canceled") {
+    listener("canceled", serializeJob(job));
+    return;
+  }
+
   req.on("close", () => {
     job.listeners.delete(listener);
   });
+});
+
+app.post("/api/audits/:jobId/cancel", (req, res) => {
+  const job = jobs.get(req.params.jobId);
+
+  if (!job) {
+    res.status(404).json({
+      status: "not_found",
+      message: "Audit job not found.",
+    });
+    return;
+  }
+
+  if (
+    job.status === "complete" ||
+    job.status === "error" ||
+    job.status === "canceled"
+  ) {
+    res.json(serializeJob(job));
+    return;
+  }
+
+  job.abortController.abort();
+  job.status = "canceled";
+  job.phase = "canceled";
+  job.currentFile = "";
+  job.message = "Audit canceled.";
+
+  const payload = serializeJob(job);
+  broadcast(job, "canceled", payload);
+  res.json(payload);
 });
 
 app.get("/api/audits/:jobId/result", (req, res) => {

@@ -1,0 +1,34 @@
+- main [ref=e3]:
+  - region "Premiere status" [ref=e4]:
+    - alert [ref=e242]:
+      - status [ref=e244]:
+        - generic [ref=e245]: Premiere Pro is not open.
+        - button "Retry" [ref=e246] [cursor=pointer]:
+          - generic [ref=e247]: Retry
+  - region "Select a folder or files to audit videos" [ref=e248]:
+    - paragraph [ref=e18]: Video Audit
+    - heading "Select a folder or files to audit videos" [level=2] [ref=e249]
+    - generic [ref=e250]:
+      - generic "Audit options" [ref=e251]:
+        - generic [ref=e252]:
+          - checkbox "Include subfolders Scans videos inside the selected folder and all nested folders." [active] [ref=e254] [cursor=pointer]
+          - generic [ref=e258] [cursor=pointer]:
+            - generic [ref=e259]: Include subfolders
+            - generic [ref=e260]: Scans videos inside the selected folder and all nested folders.
+        - generic [ref=e261]:
+          - generic [ref=e262]:
+            - checkbox "Low-resolution scan Flags videos below the target resolution or outside the expected aspect ratio." [checked] [ref=e263] [cursor=pointer]
+            - img [ref=e265]
+          - generic [ref=e267] [cursor=pointer]:
+            - generic [ref=e268]: Low-resolution scan
+            - generic [ref=e269]: Flags videos below the target resolution or outside the expected aspect ratio.
+        - generic [ref=e270]:
+          - checkbox "Black-border analysis Detects asymmetric or boxed borders and crop candidates. Slower on large folders." [ref=e272] [cursor=pointer]
+          - generic [ref=e274] [cursor=pointer]:
+            - generic [ref=e275]: Black-border analysis
+            - generic [ref=e276]: Detects asymmetric or boxed borders and crop candidates. Slower on large folders.
+      - generic [ref=e277]:
+        - button "Scan folder" [ref=e278] [cursor=pointer]:
+          - generic [ref=e279]: Scan folder
+        - button "Scan files" [ref=e280] [cursor=pointer]:
+          - generic [ref=e281]: Scan files

@@ -1,14 +1,25 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ChangeEvent, RefObject } from 'react'
 import { Button } from 'primereact/button'
 import { Checkbox } from 'primereact/checkbox'
 import { Message } from 'primereact/message'
+import { Toast } from 'primereact/toast'
 import { AuditProgressPanel } from './AuditProgressPanel'
 import { DirectoryInput } from './DirectoryInput'
+import { apiBaseUrl } from '../helpers/utils'
 import type {
   AuditProgress,
   FolderPathTestSummary,
   VideoRow,
 } from '../types/video'
+
+type EditedFolderStatusCode = 'ready' | 'not_found' | 'error'
+
+type EditedFolderStatusResponse = {
+  status: EditedFolderStatusCode
+  path: string
+  message: string
+}
 
 type UploadPanelProps = {
   auditPercent: number | null
@@ -17,14 +28,16 @@ type UploadPanelProps = {
   folderPathInputRef: RefObject<HTMLInputElement | null>
   selectedFilesInputRef: RefObject<HTMLInputElement | null>
   folderPathTestSummary: FolderPathTestSummary | null
+  includeSubfolders: boolean
   includeLowResolutionAnalysis: boolean
   includeBlackBorderAnalysis: boolean
   isAuditActive: boolean
-  isAuditVisible: boolean
   onFolderAuditClick: () => void
   onFilesAuditClick: () => void
+  onCancelAudit: () => void
   onFolderPathSelect: (event: ChangeEvent<HTMLInputElement>) => void
   onSelectedFilesSelect: (event: ChangeEvent<HTMLInputElement>) => void
+  onIncludeSubfoldersChange: (value: boolean) => void
   onIncludeLowResolutionAnalysisChange: (value: boolean) => void
   onIncludeBlackBorderAnalysisChange: (value: boolean) => void
   videoRows: VideoRow[] | null
@@ -37,39 +50,132 @@ export function UploadPanel({
   folderPathInputRef,
   selectedFilesInputRef,
   folderPathTestSummary,
+  includeSubfolders,
   includeLowResolutionAnalysis,
   includeBlackBorderAnalysis,
   isAuditActive,
-  isAuditVisible,
   onFolderAuditClick,
   onFilesAuditClick,
+  onCancelAudit,
   onFolderPathSelect,
   onSelectedFilesSelect,
+  onIncludeSubfoldersChange,
   onIncludeLowResolutionAnalysisChange,
   onIncludeBlackBorderAnalysisChange,
   videoRows,
 }: UploadPanelProps) {
+  const editedFolderToast = useRef<Toast>(null)
+  const [editedFolderStatus, setEditedFolderStatus] =
+    useState<EditedFolderStatusResponse | null>(null)
+  const [isEditedFolderStatusLoading, setIsEditedFolderStatusLoading] =
+    useState(false)
   const canStartAudit =
     !isAuditActive && (includeLowResolutionAnalysis || includeBlackBorderAnalysis)
   const showUploadControls = !videoRows && !isAuditActive
+
+  const checkEditedFolderStatus = useCallback(async () => {
+    setIsEditedFolderStatusLoading(true)
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/storage/edited-folder/status`)
+
+      if (!response.ok) {
+        throw new Error('Unable to check edited videos folder status.')
+      }
+
+      const payload = (await response.json()) as EditedFolderStatusResponse
+
+      setEditedFolderStatus(payload)
+    } catch (caughtError) {
+      const message =
+        caughtError instanceof Error
+          ? caughtError.message
+          : 'Unable to check edited videos folder status.'
+
+      console.error('[Storage] Edited folder status check failed', caughtError)
+
+      setEditedFolderStatus({
+        status: 'error',
+        path: '/Volumes/SanDisk SSD/Videos/Edited',
+        message,
+      })
+    } finally {
+      setIsEditedFolderStatusLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!showUploadControls) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void checkEditedFolderStatus()
+    }, 0)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [checkEditedFolderStatus, showUploadControls])
+
+  useEffect(() => {
+    if (!showUploadControls || editedFolderStatus?.status === 'ready') {
+      editedFolderToast.current?.clear()
+      return
+    }
+
+    if (!editedFolderStatus) {
+      return
+    }
+
+    editedFolderToast.current?.replace({
+      id: 'edited-folder-status',
+      severity: editedFolderStatus.status === 'error' ? 'error' : 'warn',
+      sticky: true,
+      closable: false,
+      className: 'premiere-status-toast-message',
+      content: () => (
+        <div className="premiere-status-toast-content" role="status">
+          <span className="premiere-status-toast-text">
+            {editedFolderStatus.message ||
+              `${editedFolderStatus.path} could not be found.`}
+          </span>
+          <Button
+            type="button"
+            label="Retry"
+            severity="secondary"
+            outlined
+            loading={isEditedFolderStatusLoading}
+            onClick={checkEditedFolderStatus}
+          />
+        </div>
+      ),
+    })
+  }, [
+    checkEditedFolderStatus,
+    editedFolderStatus,
+    isEditedFolderStatusLoading,
+    showUploadControls,
+  ])
 
   return (
     <section className="upload-panel" aria-labelledby="upload-heading">
       <p className="eyebrow">Video Audit</p>
 
       {!videoRows && (
-        <h2 id="upload-heading">Select a folder or files to audit videos</h2>
+        <h2 id="upload-heading">Select folder(s) or files to audit videos</h2>
       )}
 
-      {isAuditVisible && (
+      {isAuditActive && (
         <AuditProgressPanel
           auditPercent={auditPercent}
           auditProgress={auditProgress}
           isAuditActive={isAuditActive}
+          onCancelAudit={onCancelAudit}
         />
       )}
 
-      {folderPathTestSummary && (
+      {isAuditActive && folderPathTestSummary && (
         <p className="file-status" aria-live="polite">
           Auditing{' '}
           {folderPathTestSummary.videoFileCount.toLocaleString()} videos
@@ -78,7 +184,30 @@ export function UploadPanel({
 
       {showUploadControls && (
         <div className="upload-control-stack">
+          <Toast
+            ref={editedFolderToast}
+            appendTo="self"
+            position="top-center"
+            transitionOptions={{ timeout: 0 }}
+            className="premiere-status-toast"
+          />
           <div className="audit-options" aria-label="Audit options">
+            <div className="audit-option">
+              <Checkbox
+                inputId="include-subfolders"
+                checked={includeSubfolders}
+                disabled={isAuditActive}
+                onChange={(event) =>
+                  onIncludeSubfoldersChange(Boolean(event.checked))
+                }
+              />
+              <label htmlFor="include-subfolders">
+                <span>Include subfolders</span>
+                <small>
+                  Scans videos inside the selected folder and all nested folders.
+                </small>
+              </label>
+            </div>
             <div className="audit-option">
               <Checkbox
                 inputId="include-low-resolution-analysis"
@@ -117,7 +246,7 @@ export function UploadPanel({
           <div className="upload-actions">
             <Button
               type="button"
-              label="Scan folder"
+              label="Select Folder(s)"
               className="upload-button"
               disabled={!canStartAudit}
               onClick={onFolderAuditClick}
@@ -146,7 +275,7 @@ export function UploadPanel({
         ref={selectedFilesInputRef}
         type="file"
         multiple
-        accept="video/*,.mp4,.mov,.m4v,.mkv,.avi,.webm"
+        accept="video/*,.mp4,.mov,.m4v,.mkv,.avi,.wmv,.webm,.mpeg,.mpg,.m2ts,.ts"
         onChange={onSelectedFilesSelect}
         style={{ display: 'none' }}
       />

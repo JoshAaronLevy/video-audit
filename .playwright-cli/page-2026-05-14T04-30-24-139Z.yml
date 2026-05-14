@@ -1,0 +1,167 @@
+- main [ref=e3]:
+  - region "Premiere status" [ref=e4]:
+    - generic [ref=e6]:
+      - alert [ref=e7]:
+        - status [ref=e9]:
+          - generic [ref=e10]: Checking Premiere bridge status...
+          - button "Retry" [disabled]:
+            - img
+            - generic: Retry
+      - alert [ref=e11]:
+        - status [ref=e13]:
+          - generic [ref=e14]: Premiere bridge status is unavailable.
+          - button "Retry" [ref=e15] [cursor=pointer]:
+            - generic [ref=e16]: Retry
+  - region [ref=e17]:
+    - paragraph [ref=e18]: Video Audit
+  - region "Loaded videos" [ref=e19]:
+    - generic [ref=e20]:
+      - generic [ref=e22]:
+        - generic [ref=e23]:
+          - heading "Videos" [level=2] [ref=e24]
+          - paragraph [ref=e25]: Refreshing videos...
+        - generic [ref=e26]:
+          - generic [ref=e27]:
+            - checkbox "Show thumbnails" [checked]:
+              - switch "Show thumbnails" [checked] [disabled]
+            - generic [ref=e28]: Show thumbnails
+          - button "Generate Thumbnails" [disabled]:
+            - generic: Generate Thumbnails
+          - button "Export to Premiere" [disabled]:
+            - generic: Export to Premiere
+          - button "Crop Options" [disabled]:
+            - generic: Crop Options
+          - button "Migrate New Edits" [disabled]:
+            - generic: Migrate New Edits
+          - textbox "Search videos" [disabled]
+          - button "Clear cache" [ref=e29] [cursor=pointer]:
+            - generic [ref=e30]: Clear cache
+      - table [ref=e32]:
+        - rowgroup [ref=e33]:
+          - row "File Name File Size Duration Modified Resolution Aspect Ratio Crop Status" [ref=e34]:
+            - columnheader [ref=e35]
+            - columnheader "File Name" [ref=e36]:
+              - generic [ref=e38]: File Name
+            - columnheader "File Size" [ref=e39]:
+              - generic [ref=e41]: File Size
+            - columnheader "Duration" [ref=e42]:
+              - generic [ref=e44]: Duration
+            - columnheader "Modified" [ref=e45]:
+              - generic [ref=e47]: Modified
+            - columnheader "Resolution" [ref=e48]:
+              - generic [ref=e50]: Resolution
+            - columnheader "Aspect Ratio" [ref=e51]:
+              - generic [ref=e53]: Aspect Ratio
+            - columnheader "Crop" [ref=e54]:
+              - generic [ref=e56]: Crop
+            - columnheader "Status" [ref=e57]:
+              - generic [ref=e59]: Status
+          - row "All items unselected" [ref=e60]:
+            - columnheader "All items unselected" [ref=e61]:
+              - checkbox "All items unselected" [ref=e62]:
+                - checkbox "All items unselected" [ref=e63] [cursor=pointer]
+            - columnheader [ref=e65]
+            - columnheader [ref=e66]
+            - columnheader [ref=e67]
+            - columnheader [ref=e68]
+            - columnheader [ref=e69]
+            - columnheader [ref=e70]
+            - columnheader [ref=e71]
+            - columnheader [ref=e72]
+        - rowgroup [ref=e73]:
+          - row "Row Selected loading-0" [ref=e74] [cursor=pointer]:
+            - cell "Row Selected loading-0" [ref=e75]:
+              - checkbox "Row Selected loading-0" [ref=e76]:
+                - checkbox "Row Selected loading-0" [ref=e77]
+            - cell [ref=e79]
+            - cell [ref=e81]
+            - cell [ref=e83]
+            - cell [ref=e85]
+            - cell [ref=e87]
+            - cell [ref=e89]
+            - cell [ref=e91]
+            - cell [ref=e93]
+          - row "Row Selected loading-1" [ref=e95] [cursor=pointer]:
+            - cell "Row Selected loading-1" [ref=e96]:
+              - checkbox "Row Selected loading-1" [ref=e97]:
+                - checkbox "Row Selected loading-1" [ref=e98]
+            - cell [ref=e100]
+            - cell [ref=e102]
+            - cell [ref=e104]
+            - cell [ref=e106]
+            - cell [ref=e108]
+            - cell [ref=e110]
+            - cell [ref=e112]
+            - cell [ref=e114]
+          - row "Row Selected loading-2" [ref=e116] [cursor=pointer]:
+            - cell "Row Selected loading-2" [ref=e117]:
+              - checkbox "Row Selected loading-2" [ref=e118]:
+                - checkbox "Row Selected loading-2" [ref=e119]
+            - cell [ref=e121]
+            - cell [ref=e123]
+            - cell [ref=e125]
+            - cell [ref=e127]
+            - cell [ref=e129]
+            - cell [ref=e131]
+            - cell [ref=e133]
+            - cell [ref=e135]
+          - row "Row Selected loading-3" [ref=e137] [cursor=pointer]:
+            - cell "Row Selected loading-3" [ref=e138]:
+              - checkbox "Row Selected loading-3" [ref=e139]:
+                - checkbox "Row Selected loading-3" [ref=e140]
+            - cell [ref=e142]
+            - cell [ref=e144]
+            - cell [ref=e146]
+            - cell [ref=e148]
+            - cell [ref=e150]
+            - cell [ref=e152]
+            - cell [ref=e154]
+            - cell [ref=e156]
+          - row "Row Selected loading-4" [ref=e158] [cursor=pointer]:
+            - cell "Row Selected loading-4" [ref=e159]:
+              - checkbox "Row Selected loading-4" [ref=e160]:
+                - checkbox "Row Selected loading-4" [ref=e161]
+            - cell [ref=e163]
+            - cell [ref=e165]
+            - cell [ref=e167]
+            - cell [ref=e169]
+            - cell [ref=e171]
+            - cell [ref=e173]
+            - cell [ref=e175]
+            - cell [ref=e177]
+          - row "Row Selected loading-5" [ref=e179] [cursor=pointer]:
+            - cell "Row Selected loading-5" [ref=e180]:
+              - checkbox "Row Selected loading-5" [ref=e181]:
+                - checkbox "Row Selected loading-5" [ref=e182]
+            - cell [ref=e184]
+            - cell [ref=e186]
+            - cell [ref=e188]
+            - cell [ref=e190]
+            - cell [ref=e192]
+            - cell [ref=e194]
+            - cell [ref=e196]
+            - cell [ref=e198]
+          - row "Row Selected loading-6" [ref=e200] [cursor=pointer]:
+            - cell "Row Selected loading-6" [ref=e201]:
+              - checkbox "Row Selected loading-6" [ref=e202]:
+                - checkbox "Row Selected loading-6" [ref=e203]
+            - cell [ref=e205]
+            - cell [ref=e207]
+            - cell [ref=e209]
+            - cell [ref=e211]
+            - cell [ref=e213]
+            - cell [ref=e215]
+            - cell [ref=e217]
+            - cell [ref=e219]
+          - row "Row Selected loading-7" [ref=e221] [cursor=pointer]:
+            - cell "Row Selected loading-7" [ref=e222]:
+              - checkbox "Row Selected loading-7" [ref=e223]:
+                - checkbox "Row Selected loading-7" [ref=e224]
+            - cell [ref=e226]
+            - cell [ref=e228]
+            - cell [ref=e230]
+            - cell [ref=e232]
+            - cell [ref=e234]
+            - cell [ref=e236]
+            - cell [ref=e238]
+            - cell [ref=e240]

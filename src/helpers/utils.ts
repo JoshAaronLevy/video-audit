@@ -4,13 +4,19 @@ import type {
   AutoCropProgress,
   AutoCropProgressPayload,
   BlackBorderAdjustment,
+  DefaultRootStatusResponse,
   FolderPathManifestItem,
+  FolderTreeCache,
+  FolderTreeResponse,
   SelectedFileManifestItem,
   StoredVideoData,
+  ThumbnailProgress,
+  ThumbnailProgressPayload,
   VideoAdjustments,
   VideoRow,
   VideoSource,
   VideoStatus,
+  VideoThumbnail,
 } from '../types/video'
 import type {
   MigrationProgress,
@@ -18,7 +24,24 @@ import type {
 } from '../types/migration'
 
 const storageKey = 'video-audit:videos:v1'
-const videoExtensions = new Set(['.mp4', '.mov', '.m4v', '.mkv', '.avi', '.webm'])
+const indexedDbName = 'video-audit'
+const indexedDbVersion = 2
+const indexedDbStoreName = 'snapshots'
+const indexedDbSnapshotKey = 'latest'
+const folderTreeStoreName = 'folderTreeCache'
+const videoExtensions = new Set([
+  '.mp4',
+  '.mov',
+  '.m4v',
+  '.mkv',
+  '.avi',
+  '.wmv',
+  '.webm',
+  '.mpeg',
+  '.mpg',
+  '.m2ts',
+  '.ts',
+])
 const videoStatuses = new Set<VideoStatus>([
   'Pending',
   'Queued',
@@ -70,7 +93,22 @@ export const initialMigrationProgress: MigrationProgress = {
   error: null,
 }
 
+export const initialThumbnailProgress: ThumbnailProgress = {
+  jobId: null,
+  status: 'idle',
+  phase: null,
+  totalVideos: null,
+  processedVideos: 0,
+  generatedCount: 0,
+  cachedCount: 0,
+  failedCount: 0,
+  currentFile: null,
+  message: null,
+}
+
 export const globalFilterFields: Array<keyof VideoRow> = ['fileName']
+
+export const defaultVideoRootPath = '/Volumes/SanDisk SSD/Videos/Edited'
 
 const readString = (source: VideoSource, key: keyof VideoRow) => {
   const value = source[key]
@@ -121,6 +159,16 @@ const readAdjustments = (source: VideoSource): VideoAdjustments | undefined => {
   }
 
   return value as VideoAdjustments
+}
+
+const readThumbnail = (source: VideoSource): VideoThumbnail | undefined => {
+  const value = source.thumbnail
+
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined
+  }
+
+  return value as VideoThumbnail
 }
 
 const getPathAfterEdited = (path: string) => {
@@ -205,6 +253,13 @@ export const toVideoRow = (source: VideoSource): VideoRow => ({
   directory: readString(source, 'directory'),
   fileName: readString(source, 'fileName'),
   extension: readString(source, 'extension'),
+  fileExtension:
+    readString(source, 'fileExtension') || readString(source, 'extension'),
+  fileType:
+    readString(source, 'fileType') ||
+    (readString(source, 'fileExtension') || readString(source, 'extension'))
+      .replace(/^\./, '')
+      .toUpperCase(),
   sizeBytes: readNumber(source, 'sizeBytes'),
   sizeMB: readNumber(source, 'sizeMB'),
   sizeGB: readNumber(source, 'sizeGB'),
@@ -223,6 +278,7 @@ export const toVideoRow = (source: VideoSource): VideoRow => ({
   reasons: readString(source, 'reasons'),
   status: readVideoStatus(source),
   adjustments: readAdjustments(source),
+  thumbnail: readThumbnail(source),
 })
 
 const getBlackBorder = (row: VideoRow): BlackBorderAdjustment | undefined =>
@@ -458,7 +514,242 @@ export const formatDate = (value: string) => {
   })
 }
 
-export const loadStoredVideoData = (): StoredVideoData | null => {
+type StoredVideoDataSource = {
+  fileName?: unknown
+  payload?: unknown
+  rows?: unknown
+}
+
+const normalizeStoredVideoData = (storedSource: StoredVideoDataSource) => {
+  if (!Array.isArray(storedSource.rows)) {
+    throw new Error('Saved video rows are not valid.')
+  }
+
+  const rows = storedSource.rows.map((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error('A saved video row is not valid.')
+    }
+
+    return toVideoRow(item as VideoSource)
+  })
+
+  return {
+    fileName:
+      typeof storedSource.fileName === 'string' ? storedSource.fileName : null,
+    payload:
+      typeof storedSource.payload === 'string' ? storedSource.payload : null,
+    rows,
+  }
+}
+
+const openVideoAuditDb = () =>
+  new Promise<IDBDatabase>((resolve, reject) => {
+    if (typeof window === 'undefined' || !window.indexedDB) {
+      reject(new Error('IndexedDB is not available.'))
+      return
+    }
+
+    const request = window.indexedDB.open(indexedDbName, indexedDbVersion)
+
+    request.onupgradeneeded = () => {
+      const database = request.result
+
+      if (!database.objectStoreNames.contains(indexedDbStoreName)) {
+        database.createObjectStore(indexedDbStoreName)
+      }
+
+      if (!database.objectStoreNames.contains(folderTreeStoreName)) {
+        database.createObjectStore(folderTreeStoreName)
+      }
+    }
+
+    request.onerror = () => {
+      reject(request.error ?? new Error('Unable to open local video storage.'))
+    }
+
+    request.onsuccess = () => {
+      resolve(request.result)
+    }
+  })
+
+const readIndexedDbSnapshot = async () => {
+  const database = await openVideoAuditDb()
+
+  try {
+    return await new Promise<unknown>((resolve, reject) => {
+      const transaction = database.transaction(indexedDbStoreName, 'readonly')
+      const store = transaction.objectStore(indexedDbStoreName)
+      const request = store.get(indexedDbSnapshotKey)
+
+      request.onerror = () => {
+        reject(request.error ?? new Error('Unable to read local video storage.'))
+      }
+
+      request.onsuccess = () => {
+        resolve(request.result)
+      }
+    })
+  } finally {
+    database.close()
+  }
+}
+
+const writeIndexedDbSnapshot = async (data: StoredVideoData) => {
+  const database = await openVideoAuditDb()
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(indexedDbStoreName, 'readwrite')
+      const store = transaction.objectStore(indexedDbStoreName)
+
+      store.put(data, indexedDbSnapshotKey)
+
+      transaction.oncomplete = () => {
+        resolve()
+      }
+
+      transaction.onerror = () => {
+        reject(
+          transaction.error ?? new Error('Unable to write local video storage.'),
+        )
+      }
+
+      transaction.onabort = () => {
+        reject(
+          transaction.error ?? new Error('Unable to write local video storage.'),
+        )
+      }
+    })
+  } finally {
+    database.close()
+  }
+}
+
+const clearIndexedDbSnapshot = async () => {
+  const database = await openVideoAuditDb()
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(indexedDbStoreName, 'readwrite')
+      const store = transaction.objectStore(indexedDbStoreName)
+
+      store.delete(indexedDbSnapshotKey)
+
+      transaction.oncomplete = () => {
+        resolve()
+      }
+
+      transaction.onerror = () => {
+        reject(
+          transaction.error ?? new Error('Unable to clear local video storage.'),
+        )
+      }
+
+      transaction.onabort = () => {
+        reject(
+          transaction.error ?? new Error('Unable to clear local video storage.'),
+        )
+      }
+    })
+  } finally {
+    database.close()
+  }
+}
+
+export const getFolderTreeCacheKey = (rootPath: string) =>
+  `folder-tree::${rootPath || defaultVideoRootPath}`
+
+const isFolderTreeCache = (value: unknown): value is FolderTreeCache => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false
+  }
+
+  const candidate = value as Partial<FolderTreeCache>
+
+  return (
+    typeof candidate.cacheKey === 'string' &&
+    typeof candidate.rootPath === 'string' &&
+    typeof candidate.generatedAt === 'string' &&
+    typeof candidate.savedAt === 'string' &&
+    Array.isArray(candidate.nodes) &&
+    Boolean(candidate.summary) &&
+    typeof candidate.summary?.folderCount === 'number' &&
+    typeof candidate.summary?.videoCount === 'number' &&
+    typeof candidate.summary?.totalVideoSizeBytes === 'number'
+  )
+}
+
+export const loadFolderTreeCache = async (
+  rootPath = defaultVideoRootPath,
+): Promise<FolderTreeCache | null> => {
+  const database = await openVideoAuditDb()
+  const cacheKey = getFolderTreeCacheKey(rootPath)
+
+  try {
+    const cachedValue = await new Promise<unknown>((resolve, reject) => {
+      const transaction = database.transaction(folderTreeStoreName, 'readonly')
+      const store = transaction.objectStore(folderTreeStoreName)
+      const request = store.get(cacheKey)
+
+      request.onerror = () => {
+        reject(request.error ?? new Error('Unable to read folder tree cache.'))
+      }
+
+      request.onsuccess = () => {
+        resolve(request.result)
+      }
+    })
+
+    return isFolderTreeCache(cachedValue) ? cachedValue : null
+  } finally {
+    database.close()
+  }
+}
+
+export const saveFolderTreeCache = async (
+  tree: FolderTreeResponse,
+): Promise<FolderTreeCache> => {
+  const rootPath = tree.root.path || defaultVideoRootPath
+  const cacheKey = getFolderTreeCacheKey(rootPath)
+  const cacheValue: FolderTreeCache = {
+    cacheKey,
+    rootPath,
+    generatedAt: tree.generatedAt,
+    savedAt: new Date().toISOString(),
+    summary: tree.summary,
+    supportedVideoExtensions: tree.supportedVideoExtensions,
+    nodes: tree.nodes,
+    warnings: tree.warnings,
+  }
+  const database = await openVideoAuditDb()
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(folderTreeStoreName, 'readwrite')
+      const store = transaction.objectStore(folderTreeStoreName)
+
+      store.put(cacheValue, cacheKey)
+
+      transaction.oncomplete = () => {
+        resolve()
+      }
+
+      transaction.onerror = () => {
+        reject(transaction.error ?? new Error('Unable to save folder tree cache.'))
+      }
+
+      transaction.onabort = () => {
+        reject(transaction.error ?? new Error('Unable to save folder tree cache.'))
+      }
+    })
+
+    return cacheValue
+  } finally {
+    database.close()
+  }
+}
+
+const loadLegacyLocalStorageVideoData = (): StoredVideoData | null => {
   if (typeof window === 'undefined') {
     return null
   }
@@ -480,38 +771,46 @@ export const loadStoredVideoData = (): StoredVideoData | null => {
       throw new Error('Saved video data is not valid.')
     }
 
-    const storedSource = storedValue as {
-      fileName?: unknown
-      payload?: unknown
-      rows?: unknown
-    }
-
-    if (!Array.isArray(storedSource.rows)) {
-      throw new Error('Saved video rows are not valid.')
-    }
-
-    const rows = storedSource.rows.map((item) => {
-      if (!item || typeof item !== 'object' || Array.isArray(item)) {
-        throw new Error('A saved video row is not valid.')
-      }
-
-      return toVideoRow(item as VideoSource)
-    })
-
-    return {
-      fileName:
-        typeof storedSource.fileName === 'string' ? storedSource.fileName : null,
-      payload:
-        typeof storedSource.payload === 'string' ? storedSource.payload : null,
-      rows,
-    }
+    return normalizeStoredVideoData(storedValue as StoredVideoDataSource)
   } catch {
     window.localStorage.removeItem(storageKey)
     return null
   }
 }
 
-export const saveVideoData = (data: StoredVideoData) => {
+export const loadStoredVideoData = async (): Promise<StoredVideoData | null> => {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  try {
+    const storedValue = await readIndexedDbSnapshot()
+
+    if (storedValue) {
+      return normalizeStoredVideoData(storedValue as StoredVideoDataSource)
+    }
+  } catch {
+    // Fall through to the legacy localStorage cache.
+  }
+
+  const legacyData = loadLegacyLocalStorageVideoData()
+
+  if (legacyData) {
+    void saveVideoData(legacyData)
+  }
+
+  return legacyData
+}
+
+export const saveVideoData = async (data: StoredVideoData) => {
+  try {
+    await writeIndexedDbSnapshot(data)
+    window.localStorage.removeItem(storageKey)
+    return true
+  } catch {
+    // Fall back to the old localStorage path for browsers without IndexedDB.
+  }
+
   try {
     window.localStorage.setItem(storageKey, JSON.stringify(data))
     return true
@@ -520,12 +819,42 @@ export const saveVideoData = (data: StoredVideoData) => {
   }
 }
 
-export const clearStoredVideoData = () => {
+export const clearStoredVideoData = async () => {
+  await clearIndexedDbSnapshot().catch(() => {
+    // Clearing app state should still work if browser storage is unavailable.
+  })
+
   try {
     window.localStorage.removeItem(storageKey)
   } catch {
     // localStorage can fail in private browsing modes; clearing app state still works.
   }
+}
+
+export const fetchDefaultRootStatus =
+  async (): Promise<DefaultRootStatusResponse> => {
+    const response = await fetch(`${apiBaseUrl}/api/folders/default-root`)
+    const payload = (await response.json()) as DefaultRootStatusResponse
+
+    if (!response.ok) {
+      throw new Error(payload.message || 'Unable to check default video folder.')
+    }
+
+    return payload
+  }
+
+export const fetchFolderTree = async (
+  rootPath = defaultVideoRootPath,
+): Promise<FolderTreeResponse> => {
+  const query = rootPath ? `?root=${encodeURIComponent(rootPath)}` : ''
+  const response = await fetch(`${apiBaseUrl}/api/folders/tree${query}`)
+  const payload = (await response.json()) as FolderTreeResponse
+
+  if (!response.ok) {
+    throw new Error(payload.message || 'Unable to load folder tree.')
+  }
+
+  return payload
 }
 
 export const isVideoLikeFile = (file: File) => {
@@ -741,6 +1070,39 @@ export const mergeMigrationProgress = (
   error: payload.error ?? currentProgress.error,
 })
 
+export const mergeThumbnailProgress = (
+  currentProgress: ThumbnailProgress,
+  payload: ThumbnailProgressPayload,
+  status: ThumbnailProgress['status'] = 'running',
+): ThumbnailProgress => ({
+  ...currentProgress,
+  jobId: payload.jobId ?? currentProgress.jobId,
+  status,
+  phase: payload.phase ?? currentProgress.phase,
+  totalVideos:
+    typeof payload.totalVideos === 'number'
+      ? payload.totalVideos
+      : currentProgress.totalVideos,
+  processedVideos:
+    typeof payload.processedVideos === 'number'
+      ? payload.processedVideos
+      : currentProgress.processedVideos,
+  generatedCount:
+    typeof payload.generatedCount === 'number'
+      ? payload.generatedCount
+      : currentProgress.generatedCount,
+  cachedCount:
+    typeof payload.cachedCount === 'number'
+      ? payload.cachedCount
+      : currentProgress.cachedCount,
+  failedCount:
+    typeof payload.failedCount === 'number'
+      ? payload.failedCount
+      : currentProgress.failedCount,
+  currentFile: payload.currentFile ?? currentProgress.currentFile,
+  message: payload.message ?? currentProgress.message,
+})
+
 export const getAuditPercent = (auditProgress: AuditProgress) =>
   auditProgress.totalFiles && auditProgress.totalFiles > 0
     ? Math.round(
@@ -759,5 +1121,13 @@ export const getMigrationPercent = (migrationProgress: MigrationProgress) =>
   migrationProgress.totalFiles && migrationProgress.totalFiles > 0
     ? Math.round(
         (migrationProgress.processedFiles / migrationProgress.totalFiles) * 100,
+      )
+    : null
+
+export const getThumbnailPercent = (thumbnailProgress: ThumbnailProgress) =>
+  thumbnailProgress.totalVideos && thumbnailProgress.totalVideos > 0
+    ? Math.round(
+        (thumbnailProgress.processedVideos / thumbnailProgress.totalVideos) *
+          100,
       )
     : null

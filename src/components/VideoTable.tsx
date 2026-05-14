@@ -2,12 +2,15 @@ import { useMemo, useState } from 'react'
 import { Button } from 'primereact/button'
 import { Column } from 'primereact/column'
 import { DataTable } from 'primereact/datatable'
+import { Dialog } from 'primereact/dialog'
 import { Dropdown } from 'primereact/dropdown'
 import { FilterMatchMode } from 'primereact/api'
 import { InputText } from 'primereact/inputtext'
+import { InputSwitch } from 'primereact/inputswitch'
 import { MultiSelect } from 'primereact/multiselect'
 import { Skeleton } from 'primereact/skeleton'
 import { Tooltip } from 'primereact/tooltip'
+import { VideoThumbnailPreview } from './VideoThumbnailPreview'
 import type { VideoAdjustments, VideoRow, VideoStatus } from '../types/video'
 import {
   formatDate,
@@ -23,6 +26,7 @@ import type { CropReviewStatus } from '../helpers/utils'
 
 type VideoTableProps = {
   canExportToPremiere: boolean
+  canGenerateThumbnails: boolean
   canAutoCropSelected: boolean
   canStartMigration: boolean
   canRefresh: boolean
@@ -31,14 +35,18 @@ type VideoTableProps = {
   isAuditActive: boolean
   isLoading: boolean
   isPersisted: boolean
+  isGeneratingThumbnails: boolean
   onClearData: () => void
   onAutoCropSelectedClick: () => void
   onExportToPremiereClick: () => void
+  onGenerateThumbnailsClick: (tableRows: VideoRow[]) => void
   onMigrateNewEditsClick: () => void
   onGlobalFilterChange: (value: string) => void
   onRefreshData: () => void
   onSelectedVideosChange: (videos: VideoRow[]) => void
+  onShowThumbnailsChange: (showThumbnails: boolean) => void
   selectedVideos: VideoRow[]
+  showThumbnails: boolean
   videoRows: VideoRow[]
 }
 
@@ -65,6 +73,7 @@ type FileSizeFilterValue =
 
 type DirectoryFilterValue = string
 type CropFilterValue = CropReviewStatus
+type FileTypeFilterValue = string
 
 type SelectOption<TValue> = {
   label: string
@@ -79,6 +88,7 @@ type ActiveVideoFilters = {
   directory: DirectoryFilterValue[]
   duration: DurationFilterValue[]
   fileSize: FileSizeFilterValue[]
+  fileType: FileTypeFilterValue[]
   global: string
   resolution: boolean | null
   status: VideoStatus | null
@@ -178,6 +188,9 @@ const fileSizeFilterFunction = (
 
   return filter.some((range) => isFileSizeInRange(value, range))
 }
+
+const getFileTypeLabel = (row: VideoRow) =>
+  row.fileType || row.fileExtension?.replace(/^\./, '').toUpperCase() || ''
 
 const getTopLevelDirectory = (displayDirectory: string) =>
   displayDirectory.split(/[\\/]+/).filter(Boolean)[0] ?? ''
@@ -289,6 +302,17 @@ const directoryFilterFunction = (
   })
 }
 
+const fileTypeFilterFunction = (
+  value: string | null,
+  filter: FileTypeFilterValue[] | null,
+) => {
+  if (!filter || filter.length === 0) {
+    return true
+  }
+
+  return filter.includes((value ?? '').toUpperCase())
+}
+
 const getCropFilterValue = (
   adjustments: VideoAdjustments | undefined,
 ): CropFilterValue => getBlackBorderCropStatus(adjustments)
@@ -315,6 +339,8 @@ const matchesVideoFilters = (
     directoryFilterFunction(row.displayDirectory, filters.directory)) &&
   (excludedDimension === 'fileSize' ||
     fileSizeFilterFunction(row.sizeMB, filters.fileSize)) &&
+  (excludedDimension === 'fileType' ||
+    fileTypeFilterFunction(getFileTypeLabel(row), filters.fileType)) &&
   (excludedDimension === 'duration' ||
     durationFilterFunction(row.durationSeconds, filters.duration)) &&
   (excludedDimension === 'resolution' ||
@@ -362,6 +388,30 @@ const buildFileSizeFilterOptions = (
       ).length,
     ),
   )
+
+const buildFileTypeFilterOptions = (
+  rows: VideoRow[],
+  filters: ActiveVideoFilters,
+): SelectOption<FileTypeFilterValue>[] => {
+  const typeCounts = new Map<FileTypeFilterValue, number>()
+
+  rows
+    .filter((row) => matchesVideoFilters(row, filters, 'fileType'))
+    .forEach((row) => {
+      const fileType = getFileTypeLabel(row)
+
+      if (!fileType) return
+
+      typeCounts.set(fileType, (typeCounts.get(fileType) ?? 0) + 1)
+    })
+
+  return Array.from(typeCounts.entries())
+    .sort(([firstType], [secondType]) => firstType.localeCompare(secondType))
+    .map(([fileType, count]) => ({
+      label: `${fileType} (${count.toLocaleString()})`,
+      value: fileType,
+    }))
+}
 
 const buildDurationFilterOptions = (
   rows: VideoRow[],
@@ -449,6 +499,26 @@ const fileSizeFilterTemplate = (
       options.filterApplyCallback(nextValue)
     }}
     placeholder="File Size"
+    className="table-column-filter"
+    display="chip"
+    maxSelectedLabels={1}
+  />
+)
+
+const fileTypeFilterTemplate = (
+  options: FilterTemplateOptions<FileTypeFilterValue[] | null>,
+  fileTypeFilterOptions: SelectOption<FileTypeFilterValue>[],
+  onFilterChange: (value: FileTypeFilterValue[]) => void,
+) => (
+  <MultiSelect
+    value={options.value ?? []}
+    options={fileTypeFilterOptions}
+    onChange={(event) => {
+      const nextValue = event.value ?? []
+      onFilterChange(nextValue)
+      options.filterApplyCallback(nextValue)
+    }}
+    placeholder="Type"
     className="table-column-filter"
     display="chip"
     maxSelectedLabels={1}
@@ -572,15 +642,18 @@ const cropFilterTemplate = (
   />
 )
 
-const fileTemplate = (row: VideoRow) => {
+const fileTemplate = (row: VideoRow, showThumbnails: boolean) => {
   const displayFileName = getRowDisplayFileName(row)
   const tooltipValue = getRowDisplayFile(row)
 
   return (
-    <div className="cell-stack file-cell">
-      <span className="file-cell-tooltip" data-pr-tooltip={tooltipValue}>
-        {displayFileName}
-      </span>
+    <div className="video-title-cell file-cell">
+      {showThumbnails && <VideoThumbnailPreview row={row} />}
+      <div className="cell-stack video-title-text">
+        <span className="file-cell-tooltip" data-pr-tooltip={tooltipValue}>
+          {displayFileName}
+        </span>
+      </div>
     </div>
   )
 }
@@ -588,6 +661,12 @@ const fileTemplate = (row: VideoRow) => {
 const storageTemplate = (row: VideoRow) => (
   <div className="cell-stack">
     <span>{formatRoundedMegabytes(row.sizeMB)}</span>
+  </div>
+)
+
+const fileTypeTemplate = (row: VideoRow) => (
+  <div className="cell-stack">
+    <span>{getFileTypeLabel(row)}</span>
   </div>
 )
 
@@ -635,24 +714,88 @@ const skeletonTemplate = () => (
   <Skeleton height="1.35rem" className="table-skeleton" />
 )
 
+const isObjectValue = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null
+
+const renderPrimitiveValue = (value: unknown) => {
+  if (value === undefined) {
+    return 'undefined'
+  }
+
+  if (typeof value === 'string') {
+    return value
+  }
+
+  if (
+    value === null ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    typeof value === 'bigint'
+  ) {
+    return String(value)
+  }
+
+  return String(value)
+}
+
+const renderVideoDetailRows = (value: unknown, path = 'video') => {
+  if (!isObjectValue(value)) {
+    return <>{renderPrimitiveValue(value)}</>
+  }
+
+  const entries = Array.isArray(value)
+    ? value.map((item, index) => [String(index), item] as const)
+    : Object.entries(value)
+
+  if (entries.length === 0) {
+    return <>{Array.isArray(value) ? '[]' : '{}'}</>
+  }
+
+  return (
+    <table className="video-details-table">
+      <tbody>
+        {entries.map(([key, nestedValue]) => {
+          const rowKey = `${path}.${key}`
+
+          return (
+            <tr key={rowKey}>
+              <td>{key}</td>
+              <td>
+                {isObjectValue(nestedValue)
+                  ? renderVideoDetailRows(nestedValue, rowKey)
+                  : renderPrimitiveValue(nestedValue)}
+              </td>
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
+  )
+}
+
 export function VideoTable({
   canAutoCropSelected,
   canExportToPremiere,
+  canGenerateThumbnails,
   canStartMigration,
   // canRefresh,
   fileName,
   globalFilter,
   // isAuditActive,
   isLoading,
+  isGeneratingThumbnails,
   // isPersisted,
   onClearData,
   onAutoCropSelectedClick,
   onExportToPremiereClick,
+  onGenerateThumbnailsClick,
   onMigrateNewEditsClick,
   onGlobalFilterChange,
   // onRefreshData,
   onSelectedVideosChange,
+  onShowThumbnailsChange,
   selectedVideos,
+  showThumbnails,
   videoRows,
 }: VideoTableProps) {
   const [directoryFilterValue, setDirectoryFilterValue] = useState<
@@ -660,6 +803,9 @@ export function VideoTable({
   >([])
   const [fileSizeFilterValue, setFileSizeFilterValue] = useState<
     FileSizeFilterValue[]
+  >([])
+  const [fileTypeFilterValue, setFileTypeFilterValue] = useState<
+    FileTypeFilterValue[]
   >([])
   const [durationFilterValue, setDurationFilterValue] = useState<
     DurationFilterValue[]
@@ -673,6 +819,7 @@ export function VideoTable({
   const [cropFilterValue, setCropFilterValue] = useState<CropFilterValue[]>([])
   const [statusFilterValue, setStatusFilterValue] =
     useState<VideoStatus | null>(null)
+  const [detailVideo, setDetailVideo] = useState<VideoRow | null>(null)
   const activeFilters = useMemo<ActiveVideoFilters>(
     () => ({
       aspectRatio: aspectRatioFilterValue,
@@ -680,6 +827,7 @@ export function VideoTable({
       directory: directoryFilterValue,
       duration: durationFilterValue,
       fileSize: fileSizeFilterValue,
+      fileType: fileTypeFilterValue,
       global: globalFilter,
       resolution: resolutionFilterValue,
       status: statusFilterValue,
@@ -690,6 +838,7 @@ export function VideoTable({
       directoryFilterValue,
       durationFilterValue,
       fileSizeFilterValue,
+      fileTypeFilterValue,
       globalFilter,
       resolutionFilterValue,
       statusFilterValue,
@@ -699,12 +848,20 @@ export function VideoTable({
     () => getVisibleVideoCount(videoRows, activeFilters),
     [activeFilters, videoRows],
   )
+  const visibleVideoRows = useMemo(
+    () => videoRows.filter((row) => matchesVideoFilters(row, activeFilters)),
+    [activeFilters, videoRows],
+  )
   const directoryFilterOptions = useMemo(
     () => buildDirectoryFilterOptionsForFilters(videoRows, activeFilters),
     [activeFilters, videoRows],
   )
   const countedFileSizeFilterOptions = useMemo(
     () => buildFileSizeFilterOptions(videoRows, activeFilters),
+    [activeFilters, videoRows],
+  )
+  const countedFileTypeFilterOptions = useMemo(
+    () => buildFileTypeFilterOptions(videoRows, activeFilters),
     [activeFilters, videoRows],
   )
   const countedDurationFilterOptions = useMemo(
@@ -751,6 +908,23 @@ export function VideoTable({
     selectedCropReviewVideos.length > 0
       ? `Crop Options (${selectedCropReviewVideos.length.toLocaleString()})`
       : 'Crop Options'
+  const thumbnailButtonLabel =
+    selectedVideos.length > 0
+      ? `Generate Thumbnails (${selectedVideos.length.toLocaleString()})`
+      : 'Generate Thumbnails'
+  const actionsTemplate = (row: VideoRow) => (
+    <Button
+      type="button"
+      label="View details"
+      size="small"
+      severity="secondary"
+      outlined
+      onClick={(event) => {
+        event.stopPropagation()
+        setDetailVideo(row)
+      }}
+    />
+  )
 
   const tableHeader = (
     <div className="table-header">
@@ -770,6 +944,28 @@ export function VideoTable({
         )}
       </div>
       <div className="table-actions">
+        <label className="thumbnail-toggle">
+          <InputSwitch
+            checked={showThumbnails}
+            onChange={(event) => onShowThumbnailsChange(Boolean(event.value))}
+            disabled={isLoading}
+            aria-label="Show thumbnails"
+          />
+          <span>Show thumbnails</span>
+        </label>
+        <Button
+          type="button"
+          label={thumbnailButtonLabel}
+          severity="secondary"
+          outlined
+          disabled={
+            !canGenerateThumbnails ||
+            isGeneratingThumbnails ||
+            visibleVideoRows.length === 0
+          }
+          loading={isGeneratingThumbnails}
+          onClick={() => onGenerateThumbnailsClick(visibleVideoRows)}
+        />
         <Button
           type="button"
           label={exportButtonLabel}
@@ -817,7 +1013,10 @@ export function VideoTable({
   )
 
   return (
-    <section className="table-section" aria-label="Loaded videos">
+    <section
+      className={`table-section ${showThumbnails ? '' : 'thumbnails-hidden'}`}
+      aria-label="Loaded videos"
+    >
       <Tooltip target=".file-cell-tooltip" position="top" showDelay={2000} />
       <DataTable
         value={isLoading ? loadingRows : videoRows}
@@ -828,7 +1027,7 @@ export function VideoTable({
         selection={selectedVideos}
         onSelectionChange={(event) => {
           const nextSelectedVideos = event.value as VideoRow[]
-          console.log('[VideoTable] Selected videos:', JSON.stringify(nextSelectedVideos))
+          console.log('[VideoTable] Selected videos:', nextSelectedVideos)
           onSelectedVideosChange(nextSelectedVideos)
         }}
         metaKeySelection={false}
@@ -843,7 +1042,7 @@ export function VideoTable({
         stripedRows
         size="small"
         scrollable
-        tableStyle={{ minWidth: '1160px' }}
+        tableStyle={{ minWidth: '1320px' }}
         emptyMessage={isLoading ? '' : 'No videos found.'}
       >
         <Column
@@ -869,8 +1068,30 @@ export function VideoTable({
             )
           }
           showFilterMenu={false}
-          body={isLoading ? skeletonTemplate : fileTemplate}
-          style={{ width: '44%' }}
+          body={
+            isLoading
+              ? skeletonTemplate
+              : (row: VideoRow) => fileTemplate(row, showThumbnails)
+          }
+          style={{ width: '38%' }}
+        />
+        <Column
+          field="fileType"
+          header="Type"
+          sortable={!isLoading}
+          filter={!isLoading}
+          filterMatchMode={FilterMatchMode.CUSTOM}
+          filterFunction={fileTypeFilterFunction}
+          filterElement={(options) =>
+            fileTypeFilterTemplate(
+              options as FilterTemplateOptions<FileTypeFilterValue[] | null>,
+              countedFileTypeFilterOptions,
+              setFileTypeFilterValue,
+            )
+          }
+          showFilterMenu={false}
+          body={isLoading ? skeletonTemplate : fileTypeTemplate}
+          style={{ width: '7%' }}
         />
         <Column
           field="sizeMB"
@@ -987,7 +1208,25 @@ export function VideoTable({
           body={isLoading ? skeletonTemplate : statusTemplate}
           style={{ width: '10%' }}
         />
+        <Column
+          header="Actions"
+          body={isLoading ? skeletonTemplate : actionsTemplate}
+          style={{ width: '9%' }}
+        />
       </DataTable>
+      <Dialog
+        visible={Boolean(detailVideo)}
+        modal
+        dismissableMask
+        draggable={false}
+        resizable={false}
+        showHeader={false}
+        className="video-details-dialog"
+        contentClassName="video-details-dialog-content"
+        onHide={() => setDetailVideo(null)}
+      >
+        {detailVideo && renderVideoDetailRows(detailVideo)}
+      </Dialog>
     </section>
   )
 }

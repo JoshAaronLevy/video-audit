@@ -8,8 +8,11 @@ const {
   analyzeBlackBorders,
   isBlackBorderReviewCandidate,
 } = require("./blackBorderAnalysis");
-
-const VIDEO_EXTENSIONS = new Set([".mp4", ".m4v", ".mov"]);
+const {
+  SUPPORTED_VIDEO_EXTENSION_SET,
+  getVideoFileType,
+  isSupportedVideoFileName,
+} = require("./videoExtensions");
 const DEFAULT_TARGET_ASPECT_RATIO = 16 / 9;
 const DEFAULT_ASPECT_RATIO_TOLERANCE = 0.01;
 const DEFAULT_MIN_HEIGHT = 720;
@@ -19,7 +22,13 @@ const SYSTEM_DIRECTORY_NAMES = new Set([
   ".fseventsd",
   ".TemporaryItems",
   "System Volume Information",
+  ".git",
   "node_modules",
+  ".video-audit-temp",
+  ".video-audit-trash",
+  ".video-audit-cleanup-runs",
+  "Archive",
+  "archived-files",
 ]);
 
 async function pathExists(filePath) {
@@ -37,9 +46,29 @@ function emitProgress(onProgress, update) {
   onProgress(update);
 }
 
-async function findVideoFiles(dir, onProgress) {
+function createAbortError() {
+  const error = new Error("Audit canceled.");
+  error.name = "AbortError";
+  return error;
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) {
+    throw createAbortError();
+  }
+}
+
+async function findVideoFilesInDirectories({
+  directories,
+  onProgress,
+  includeSubfolders = true,
+  signal,
+}) {
   const results = [];
+  const seenPaths = new Set();
   let skippedFiles = 0;
+
+  throwIfAborted(signal);
 
   emitProgress(onProgress, {
     phase: "walking",
@@ -73,9 +102,20 @@ async function findVideoFiles(dir, onProgress) {
     }
 
     for (const entry of entries) {
+      throwIfAborted(signal);
+
       const fullPath = path.join(currentDir, entry.name);
 
+      if (entry.isSymbolicLink()) {
+        skippedFiles += 1;
+        continue;
+      }
+
       if (entry.isDirectory()) {
+        if (!includeSubfolders) {
+          continue;
+        }
+
         if (SYSTEM_DIRECTORY_NAMES.has(entry.name)) {
           skippedFiles += 1;
           continue;
@@ -94,10 +134,15 @@ async function findVideoFiles(dir, onProgress) {
         continue;
       }
 
-      const ext = path.extname(fileName).toLowerCase();
+      if (isSupportedVideoFileName(fileName)) {
+        const normalizedPath = path.resolve(fullPath);
 
-      if (VIDEO_EXTENSIONS.has(ext)) {
-        results.push(fullPath);
+        if (seenPaths.has(normalizedPath)) {
+          continue;
+        }
+
+        seenPaths.add(normalizedPath);
+        results.push(normalizedPath);
         emitProgress(onProgress, {
           phase: "walking",
           totalFiles: results.length,
@@ -112,7 +157,11 @@ async function findVideoFiles(dir, onProgress) {
     }
   }
 
-  await walk(dir);
+  for (const directory of directories) {
+    await walk(directory);
+  }
+
+  throwIfAborted(signal);
 
   emitProgress(onProgress, {
     phase: "walking",
@@ -128,8 +177,30 @@ async function findVideoFiles(dir, onProgress) {
   return { files: results, skippedFiles };
 }
 
-function runFfprobe(filePath) {
+async function findVideoFiles(
+  dir,
+  onProgress,
+  { includeSubfolders = true, signal } = {}
+) {
+  return findVideoFilesInDirectories({
+    directories: [dir],
+    onProgress,
+    includeSubfolders,
+    signal,
+  });
+}
+
+function runFfprobe(filePath, { signal } = {}) {
   return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve({
+        ok: false,
+        canceled: true,
+        error: "Audit canceled.",
+      });
+      return;
+    }
+
     const args = [
       "-v",
       "error",
@@ -160,6 +231,30 @@ function runFfprobe(filePath) {
     ];
 
     const child = spawn("ffprobe", args);
+    let settled = false;
+    let abortHandler = null;
+
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+
+      if (abortHandler) {
+        signal?.removeEventListener("abort", abortHandler);
+      }
+
+      resolve(result);
+    };
+
+    abortHandler = () => {
+      child.kill("SIGTERM");
+      finish({
+        ok: false,
+        canceled: true,
+        error: "Audit canceled.",
+      });
+    };
+
+    signal?.addEventListener("abort", abortHandler, { once: true });
 
     let stdout = "";
     let stderr = "";
@@ -173,7 +268,7 @@ function runFfprobe(filePath) {
     });
 
     child.on("error", (error) => {
-      resolve({
+      finish({
         ok: false,
         error: error.message,
       });
@@ -181,7 +276,7 @@ function runFfprobe(filePath) {
 
     child.on("close", (code) => {
       if (code !== 0) {
-        resolve({
+        finish({
           ok: false,
           error: stderr || `ffprobe exited with code ${code}`,
         });
@@ -193,20 +288,20 @@ function runFfprobe(filePath) {
         const stream = parsed.streams?.[0];
 
         if (!stream) {
-          resolve({
+          finish({
             ok: false,
             error: "No video stream found",
           });
           return;
         }
 
-        resolve({
+        finish({
           ok: true,
           stream,
           format: parsed.format || {},
         });
       } catch (error) {
-        resolve({
+        finish({
           ok: false,
           error: `Failed to parse ffprobe JSON: ${error.message}`,
         });
@@ -368,6 +463,8 @@ async function getFileInfo(filePath) {
   return {
     directory: path.dirname(filePath),
     extension: path.extname(filePath).toLowerCase(),
+    fileExtension: path.extname(filePath).toLowerCase(),
+    fileType: getVideoFileType(filePath),
     sizeBytes,
     sizeMB: bytesToMB(sizeBytes),
     sizeGB: bytesToGB(sizeBytes),
@@ -448,6 +545,8 @@ function buildFlaggedVideoRecord({
     directory: fileInfo.directory,
     fileName,
     extension: fileInfo.extension,
+    fileExtension: fileInfo.fileExtension,
+    fileType: fileInfo.fileType,
 
     sizeBytes,
     sizeMB: bytesToMB(sizeBytes),
@@ -537,10 +636,13 @@ async function auditVideoEntries({
   aspectRatioTolerance = DEFAULT_ASPECT_RATIO_TOLERANCE,
   includeLowResolutionAnalysis = true,
   includeBlackBorderAnalysis = false,
+  signal,
   onProgress,
 }) {
   const flagged = [];
   const errors = [];
+
+  throwIfAborted(signal);
 
   emitProgress(onProgress, {
     phase: "analyzing",
@@ -555,6 +657,8 @@ async function auditVideoEntries({
   });
 
   for (let i = 0; i < entries.length; i++) {
+    throwIfAborted(signal);
+
     const entry = entries[i];
     const filePath = entry.analysisPath;
     const fileName = entry.fileName || path.basename(filePath);
@@ -595,7 +699,11 @@ async function auditVideoEntries({
       continue;
     }
 
-    const result = await runFfprobe(filePath);
+    const result = await runFfprobe(filePath, { signal });
+
+    if (result.canceled) {
+      throwIfAborted(signal);
+    }
 
     if (!result.ok) {
       errors.push({
@@ -630,8 +738,11 @@ async function auditVideoEntries({
           width,
           height,
           durationSeconds,
+          signal,
         })
       : null;
+
+    throwIfAborted(signal);
 
     const record = buildFlaggedVideoRecord({
       filePath,
@@ -715,6 +826,8 @@ async function auditVideos({
   aspectRatioTolerance = DEFAULT_ASPECT_RATIO_TOLERANCE,
   includeLowResolutionAnalysis = true,
   includeBlackBorderAnalysis = false,
+  includeSubfolders = true,
+  signal,
   onProgress,
 }) {
   if (!directoryPath) {
@@ -730,7 +843,8 @@ async function auditVideos({
 
   const { files, skippedFiles } = await findVideoFiles(
     absoluteDirectoryPath,
-    onProgress
+    onProgress,
+    { includeSubfolders, signal }
   );
   const entries = files.map((filePath) => ({ analysisPath: filePath }));
 
@@ -743,6 +857,7 @@ async function auditVideos({
     aspectRatioTolerance,
     includeLowResolutionAnalysis,
     includeBlackBorderAnalysis,
+    signal,
     onProgress,
   });
 }
@@ -755,6 +870,7 @@ async function auditSelectedVideoFiles({
   aspectRatioTolerance = DEFAULT_ASPECT_RATIO_TOLERANCE,
   includeLowResolutionAnalysis = true,
   includeBlackBorderAnalysis = false,
+  signal,
   onProgress,
 }) {
   if (!Array.isArray(files)) {
@@ -765,6 +881,8 @@ async function auditSelectedVideoFiles({
   let skippedFiles = 0;
 
   for (const file of files) {
+    throwIfAborted(signal);
+
     const analysisPath =
       typeof file === "string" ? file : file && file.analysisPath;
 
@@ -794,7 +912,7 @@ async function auditSelectedVideoFiles({
         : path.basename(absoluteAnalysisPath);
     const extension = path.extname(fileName).toLowerCase();
 
-    if (!VIDEO_EXTENSIONS.has(extension)) {
+    if (!SUPPORTED_VIDEO_EXTENSION_SET.has(extension)) {
       skippedFiles += 1;
       continue;
     }
@@ -815,6 +933,47 @@ async function auditSelectedVideoFiles({
     aspectRatioTolerance,
     includeLowResolutionAnalysis,
     includeBlackBorderAnalysis,
+    signal,
+    onProgress,
+  });
+}
+
+async function auditSelectedFolders({
+  folders,
+  rootDirectoryPath,
+  minHeight = DEFAULT_MIN_HEIGHT,
+  targetAspectRatio = DEFAULT_TARGET_ASPECT_RATIO,
+  aspectRatioTolerance = DEFAULT_ASPECT_RATIO_TOLERANCE,
+  includeLowResolutionAnalysis = true,
+  includeBlackBorderAnalysis = false,
+  includeSubfolders = true,
+  signal,
+  onProgress,
+}) {
+  if (!Array.isArray(folders)) {
+    throw new Error("folders must be an array");
+  }
+
+  const absoluteFolders = folders.map((folder) => path.resolve(folder));
+
+  const { files, skippedFiles } = await findVideoFilesInDirectories({
+    directories: absoluteFolders,
+    onProgress,
+    includeSubfolders,
+    signal,
+  });
+  const entries = files.map((filePath) => ({ analysisPath: filePath }));
+
+  return auditVideoEntries({
+    entries,
+    rootDirectoryPath: rootDirectoryPath || absoluteFolders[0] || "Selected folders",
+    skippedFiles,
+    minHeight,
+    targetAspectRatio,
+    aspectRatioTolerance,
+    includeLowResolutionAnalysis,
+    includeBlackBorderAnalysis,
+    signal,
     onProgress,
   });
 }
@@ -892,6 +1051,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  auditSelectedFolders,
   auditSelectedVideoFiles,
   auditVideos,
 };

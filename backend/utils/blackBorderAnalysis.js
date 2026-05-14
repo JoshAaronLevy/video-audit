@@ -75,8 +75,18 @@ function parseCropdetectOutput(stderr) {
   };
 }
 
-function runCropdetectSample({ filePath, timestampSeconds }) {
+function runCropdetectSample({ filePath, timestampSeconds, signal }) {
   return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve({
+        ok: false,
+        canceled: true,
+        timestampSeconds,
+        error: "Audit canceled.",
+      });
+      return;
+    }
+
     const args = [
       "-hide_banner",
       "-ss",
@@ -93,14 +103,39 @@ function runCropdetectSample({ filePath, timestampSeconds }) {
     ];
 
     const child = spawn("ffmpeg", args);
+    let settled = false;
+    let abortHandler = null;
     let stderr = "";
+
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+
+      if (abortHandler) {
+        signal?.removeEventListener("abort", abortHandler);
+      }
+
+      resolve(result);
+    };
+
+    abortHandler = () => {
+      child.kill("SIGTERM");
+      finish({
+        ok: false,
+        canceled: true,
+        timestampSeconds,
+        error: "Audit canceled.",
+      });
+    };
+
+    signal?.addEventListener("abort", abortHandler, { once: true });
 
     child.stderr.on("data", (data) => {
       stderr += data.toString();
     });
 
     child.on("error", (error) => {
-      resolve({
+      finish({
         ok: false,
         timestampSeconds,
         error: error.message,
@@ -109,7 +144,7 @@ function runCropdetectSample({ filePath, timestampSeconds }) {
 
     child.on("close", (code) => {
       if (code !== 0) {
-        resolve({
+        finish({
           ok: false,
           timestampSeconds,
           error: stderr || `ffmpeg exited with code ${code}`,
@@ -120,7 +155,7 @@ function runCropdetectSample({ filePath, timestampSeconds }) {
       const crop = parseCropdetectOutput(stderr);
 
       if (!crop) {
-        resolve({
+        finish({
           ok: false,
           timestampSeconds,
           error: "No cropdetect crop value was emitted.",
@@ -128,7 +163,7 @@ function runCropdetectSample({ filePath, timestampSeconds }) {
         return;
       }
 
-      resolve({
+      finish({
         ok: true,
         timestampSeconds,
         crop,
@@ -259,6 +294,7 @@ async function analyzeBlackBorders({
   width,
   height,
   durationSeconds,
+  signal,
 }) {
   const sourceWidth = safeNumber(width);
   const sourceHeight = safeNumber(height);
@@ -277,12 +313,21 @@ async function analyzeBlackBorders({
   const sampleResults = [];
 
   for (const timestampSeconds of timestamps) {
+    if (signal?.aborted) {
+      throw new Error("Audit canceled.");
+    }
+
     sampleResults.push(
       await runCropdetectSample({
         filePath,
         timestampSeconds,
+        signal,
       })
     );
+
+    if (sampleResults[sampleResults.length - 1]?.canceled) {
+      throw new Error("Audit canceled.");
+    }
   }
 
   const successfulSamples = sampleResults

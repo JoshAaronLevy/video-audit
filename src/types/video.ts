@@ -61,6 +61,16 @@ export type VideoAdjustments = {
   blackBorder?: BlackBorderAdjustment
 }
 
+export type VideoThumbnail = {
+  generated: boolean
+  cached?: boolean
+  fileName?: string
+  url?: string
+  path?: string
+  timestampSeconds?: number
+  error?: string
+}
+
 export type VideoRow = {
   displayFile: string
   displayDirectory: string
@@ -68,6 +78,8 @@ export type VideoRow = {
   directory: string
   fileName: string
   extension: string
+  fileExtension: string
+  fileType: string
   sizeBytes: number | null
   sizeMB: number | null
   sizeGB: number | null
@@ -86,12 +98,79 @@ export type VideoRow = {
   reasons: string
   status: VideoStatus
   adjustments?: VideoAdjustments
+  thumbnail?: VideoThumbnail
 }
 
 export type StoredVideoData = {
   fileName: string | null
   payload: string | null
   rows: VideoRow[]
+}
+
+export type FolderTreeNode = {
+  key: string
+  data: {
+    name: string
+    path: string
+    relativePath: string
+    type: 'folder'
+    videoCount: number
+    totalVideoSizeBytes: number
+    folderCount?: number
+    warning?: string
+  }
+  children?: FolderTreeNode[]
+  leaf?: boolean
+}
+
+export type FolderTreeSummary = {
+  folderCount: number
+  videoCount: number
+  totalVideoSizeBytes: number
+}
+
+export type FolderTreeRoot = {
+  path: string
+  name: string
+  available: boolean
+  label?: string
+}
+
+export type FolderTreeWarning =
+  | string
+  | {
+      type?: string
+      path?: string
+      message?: string
+    }
+
+export type FolderTreeResponse = {
+  root: FolderTreeRoot
+  generatedAt: string
+  supportedVideoExtensions: string[]
+  summary: FolderTreeSummary
+  nodes: FolderTreeNode[]
+  warnings: FolderTreeWarning[]
+  message?: string
+}
+
+export type FolderTreeCache = {
+  cacheKey: string
+  rootPath: string
+  generatedAt: string
+  savedAt: string
+  summary: FolderTreeSummary
+  supportedVideoExtensions: string[]
+  nodes: FolderTreeNode[]
+  warnings: FolderTreeWarning[]
+}
+
+export type DefaultRootStatusResponse = {
+  defaultRoot: string
+  available: boolean
+  label?: string
+  message?: string
+  supportedVideoExtensions?: string[]
 }
 
 export type FolderPathManifestItem = {
@@ -105,6 +184,8 @@ export type FolderPathTestSummary = {
   videoFileCount: number
   rootPath: string | null
   firstRelativePath: string | null
+  selectedFolderCount?: number
+  totalSelectedSizeBytes?: number
 }
 
 export type SelectedFileManifestItem = {
@@ -114,15 +195,22 @@ export type SelectedFileManifestItem = {
 }
 
 export type AuditRequestPayload = {
-  rootPath: string
-  sampleFile: FolderPathManifestItem
+  rootPath?: string
+  sampleFile?: FolderPathManifestItem
+  selectedFolders?: string[]
+  scanOptions?: {
+    includeSubfolders?: boolean
+    includeLowResolutionAnalysis?: boolean
+    includeBlackBorderAnalysis?: boolean
+  }
+  includeSubfolders?: boolean
   includeLowResolutionAnalysis?: boolean
   includeBlackBorderAnalysis?: boolean
 }
 
 export type AuditProgress = {
   jobId: string | null
-  status: 'idle' | 'starting' | 'running' | 'complete' | 'error'
+  status: 'idle' | 'starting' | 'running' | 'complete' | 'error' | 'canceled'
   phase: string | null
   resolvedDirectory: string | null
   totalFiles: number | null
@@ -211,4 +299,53 @@ export type AutoCropResultResponse = {
   outputDir: string
   manifestPath?: string
   items: AutoCropResultItem[]
+}
+
+export type ThumbnailScope = 'selected' | 'all'
+
+export type ThumbnailProgress = {
+  jobId: string | null
+  status: 'idle' | 'starting' | 'running' | 'complete' | 'error'
+  phase: string | null
+  totalVideos: number | null
+  processedVideos: number
+  generatedCount: number
+  cachedCount: number
+  failedCount: number
+  currentFile: string | null
+  message: string | null
+}
+
+export type ThumbnailProgressPayload = Partial<
+  Omit<ThumbnailProgress, 'status'>
+> & {
+  jobId?: string
+  status?: string
+}
+
+export type ThumbnailStartResponse = {
+  jobId?: string
+  message?: string
+  status?: string
+  totalVideos?: number
+}
+
+export type ThumbnailResultItem = {
+  id?: string
+  fileName?: string
+  path?: string
+  absolutePath?: string
+  thumbnail: VideoThumbnail
+}
+
+export type ThumbnailResultResponse = {
+  jobId: string
+  status: 'complete' | 'error'
+  summary: {
+    requested: number
+    generated: number
+    cached: number
+    failed: number
+  }
+  items: ThumbnailResultItem[]
 }

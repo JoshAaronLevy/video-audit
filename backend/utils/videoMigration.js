@@ -1,15 +1,10 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const path = require("node:path");
-
-const VIDEO_EXTENSIONS = new Set([
-  ".mp4",
-  ".mov",
-  ".m4v",
-  ".mkv",
-  ".avi",
-  ".webm",
-]);
+const {
+  SUPPORTED_VIDEO_EXTENSION_SET,
+  isSupportedVideoFileName,
+} = require("./videoExtensions");
 const EXCLUDED_DIRECTORY_NAMES = new Set([
   ".video-audit-temp",
   ".video-audit-trash",
@@ -52,7 +47,7 @@ function isPathInside(parentPath, childPath) {
 }
 
 function isVideoFileName(fileName) {
-  return VIDEO_EXTENSIONS.has(path.extname(fileName).toLowerCase());
+  return isSupportedVideoFileName(fileName);
 }
 
 function toIsoStringOrNull(value) {
@@ -828,7 +823,7 @@ async function executeMigration(plan, { onProgress } = {}) {
 }
 
 module.exports = {
-  VIDEO_EXTENSIONS,
+  VIDEO_EXTENSIONS: SUPPORTED_VIDEO_EXTENSION_SET,
   executeMigration,
   scanMigration,
 };
