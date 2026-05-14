@@ -1,5 +1,6 @@
+import { useEffect, useRef } from 'react'
 import { Button } from 'primereact/button'
-import { Message } from 'primereact/message'
+import { Toast } from 'primereact/toast'
 import type { PremiereStatusResponse } from '../types/premiere'
 
 type PremiereStatusBannerProps = {
@@ -70,24 +71,42 @@ export function PremiereStatusBanner({
   onRetry,
   status,
 }: PremiereStatusBannerProps) {
+  const toast = useRef<Toast>(null)
+
+  useEffect(() => {
+    toast.current?.replace({
+      id: 'premiere-status',
+      severity: getBannerSeverity(status),
+      sticky: true,
+      closable: false,
+      className: 'premiere-status-toast-message',
+      content: () => (
+        <div className="premiere-status-toast-content" role="status">
+          <span className="premiere-status-toast-text">
+            {getBannerText(status, isLoading)}
+          </span>
+          <Button
+            type="button"
+            label="Retry"
+            severity="secondary"
+            outlined
+            loading={isLoading}
+            onClick={onRetry}
+          />
+        </div>
+      ),
+    })
+  }, [isLoading, onRetry, status])
+
   return (
     <section className="premiere-status-section" aria-label="Premiere status">
-      <div className="premiere-status-panel">
-        <Message
-          severity={getBannerSeverity(status)}
-          text={getBannerText(status, isLoading)}
-          className="premiere-status-message"
-          role="status"
-        />
-        <Button
-          type="button"
-          label="Retry"
-          severity="secondary"
-          outlined
-          loading={isLoading}
-          onClick={onRetry}
-        />
-      </div>
+      <Toast
+        ref={toast}
+        appendTo="self"
+        position="top-center"
+        transitionOptions={{ timeout: 0 }}
+        className="premiere-status-toast"
+      />
     </section>
   )
 }

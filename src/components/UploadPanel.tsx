@@ -51,6 +51,7 @@ export function UploadPanel({
 }: UploadPanelProps) {
   const canStartAudit =
     !isAuditActive && (includeLowResolutionAnalysis || includeBlackBorderAnalysis)
+  const showUploadControls = !videoRows && !isAuditActive
 
   return (
     <section className="upload-panel" aria-labelledby="upload-heading">
@@ -60,7 +61,22 @@ export function UploadPanel({
         <h2 id="upload-heading">Select a folder or files to audit videos</h2>
       )}
 
-      {!videoRows && (
+      {isAuditVisible && (
+        <AuditProgressPanel
+          auditPercent={auditPercent}
+          auditProgress={auditProgress}
+          isAuditActive={isAuditActive}
+        />
+      )}
+
+      {folderPathTestSummary && (
+        <p className="file-status" aria-live="polite">
+          Auditing{' '}
+          {folderPathTestSummary.videoFileCount.toLocaleString()} videos
+        </p>
+      )}
+
+      {showUploadControls && (
         <div className="upload-control-stack">
           <div className="audit-options" aria-label="Audit options">
             <div className="audit-option">
@@ -134,21 +150,6 @@ export function UploadPanel({
         onChange={onSelectedFilesSelect}
         style={{ display: 'none' }}
       />
-
-      {isAuditVisible && (
-        <AuditProgressPanel
-          auditPercent={auditPercent}
-          auditProgress={auditProgress}
-          isAuditActive={isAuditActive}
-        />
-      )}
-
-      {folderPathTestSummary && (
-        <p className="file-status" aria-live="polite">
-          Auditing{' '}
-          {folderPathTestSummary.videoFileCount.toLocaleString()} videos
-        </p>
-      )}
 
       {error && (
         <Message

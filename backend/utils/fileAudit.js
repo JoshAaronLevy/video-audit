@@ -389,11 +389,22 @@ function formatTargetAspectRatio(targetAspectRatio) {
 function getBlackBorderReviewReason(blackBorder) {
   if (!isBlackBorderReviewCandidate(blackBorder)) return null;
 
-  if (blackBorder.classification === "nested_borders") {
-    return "black borders detected on both axes";
+  switch (blackBorder.classification) {
+    case "nested_borders":
+      return "black borders detected on both axes";
+    case "asymmetric_border":
+      return "asymmetric black borders detected";
+    case "pillarboxed":
+      return "pillarbox borders detected";
+    case "letterboxed":
+      return "letterbox borders detected";
+    case "uncertain":
+      return "black-border analysis uncertain";
+    case "analysis_error":
+      return "black-border analysis errored";
+    default:
+      return null;
   }
-
-  return "asymmetric black borders detected";
 }
 
 function buildFlaggedVideoRecord({

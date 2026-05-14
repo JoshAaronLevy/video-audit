@@ -398,7 +398,11 @@ function isBlackBorderReviewCandidate(blackBorder) {
     blackBorder &&
       blackBorder.analyzed &&
       (blackBorder.classification === "nested_borders" ||
-        blackBorder.classification === "asymmetric_border")
+        blackBorder.classification === "asymmetric_border" ||
+        blackBorder.classification === "pillarboxed" ||
+        blackBorder.classification === "letterboxed" ||
+        blackBorder.classification === "uncertain" ||
+        blackBorder.classification === "analysis_error")
   );
 }
 

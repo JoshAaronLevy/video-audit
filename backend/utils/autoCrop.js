@@ -11,8 +11,6 @@ const DEFAULT_OUTPUT_ROOT_DIR = path.join(
 );
 const TARGET_WIDTH = 1920;
 const TARGET_HEIGHT = 1080;
-const TARGET_ASPECT_RATIO = TARGET_WIDTH / TARGET_HEIGHT;
-const AUTO_CROP_ASPECT_TOLERANCE = 0.03;
 const MIN_VISIBLE_WIDTH = 640;
 const MIN_VISIBLE_HEIGHT = 360;
 
@@ -49,8 +47,22 @@ function getVisibleArea(video) {
   return getBlackBorderAdjustment(video)?.visibleArea || null;
 }
 
-function getRecommendedFix(video) {
-  return getBlackBorderAdjustment(video)?.recommendedFix || null;
+function getOriginalFileName(video, sourcePath) {
+  const candidates = [video?.fileName, video?.displayFile];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") {
+      continue;
+    }
+
+    const fileName = path.basename(candidate.trim().replace(/\\/g, "/"));
+
+    if (fileName && fileName !== "." && fileName !== path.sep) {
+      return fileName;
+    }
+  }
+
+  return path.basename(sourcePath);
 }
 
 function getSourceDimensions(video) {
@@ -83,13 +95,8 @@ function validateCropInsideSource({ crop, sourceWidth, sourceHeight }) {
 function isAutoCropEligible(video) {
   const blackBorder = getBlackBorderAdjustment(video);
   const visibleArea = getVisibleArea(video);
-  const recommendedFix = getRecommendedFix(video);
 
-  if (
-    blackBorder?.classification !== "nested_borders" ||
-    blackBorder?.confidence !== "high" ||
-    recommendedFix?.eligible !== true
-  ) {
+  if (blackBorder?.classification !== "nested_borders") {
     return false;
   }
 
@@ -103,10 +110,7 @@ function isAutoCropEligible(video) {
     return false;
   }
 
-  const aspectRatio = visibleArea.width / visibleArea.height;
-
   return (
-    Math.abs(aspectRatio - TARGET_ASPECT_RATIO) <= AUTO_CROP_ASPECT_TOLERANCE &&
     visibleArea.width >= MIN_VISIBLE_WIDTH &&
     visibleArea.height >= MIN_VISIBLE_HEIGHT
   );
@@ -195,10 +199,7 @@ async function validateAutoCropRequest(body) {
     videos.push({
       ...video,
       path: sourcePath,
-      fileName:
-        typeof video.fileName === "string" && video.fileName
-          ? video.fileName
-          : path.basename(sourcePath),
+      fileName: getOriginalFileName(video, sourcePath),
       sourceSizeBytes: stat.size,
     });
   }
@@ -217,54 +218,6 @@ async function validateAutoCropRequest(body) {
     videos,
     outputRootDir,
   };
-}
-
-async function createUniqueRunFolder(outputRootDir) {
-  const baseRunId = `video-audit-crop-${timestampForRunId()}`;
-
-  for (let index = 0; index < 100; index++) {
-    const runId = index === 0 ? baseRunId : `${baseRunId}-${index + 1}`;
-    const outputDir = path.join(outputRootDir, runId);
-
-    try {
-      await fs.mkdir(outputDir, { recursive: false });
-      return { runId, outputDir };
-    } catch (error) {
-      if (error.code === "EEXIST") {
-        continue;
-      }
-
-      throw error;
-    }
-  }
-
-  throw new Error("Unable to create a unique auto-crop run folder.");
-}
-
-async function pathExists(filePath) {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function getUniqueOutputPath({ outputDir, fileName }) {
-  const extension = ".mp4";
-  const parsed = path.parse(fileName);
-  const baseName = parsed.name || "video";
-
-  for (let index = 0; index < 1000; index++) {
-    const suffix = index === 0 ? "" : `-${index + 1}`;
-    const candidate = path.join(outputDir, `${baseName}${suffix}${extension}`);
-
-    if (!(await pathExists(candidate))) {
-      return candidate;
-    }
-  }
-
-  throw new Error(`Unable to allocate output filename for ${fileName}.`);
 }
 
 function buildFfmpegFilter({ crop, target }) {
@@ -322,6 +275,57 @@ async function writeManifest(manifestPath, manifest) {
   await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2));
 }
 
+async function pathExists(filePath) {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function createUniqueRunFolder(outputRootDir) {
+  const baseRunId = `video-audit-crop-${timestampForRunId()}`;
+
+  for (let index = 0; index < 100; index++) {
+    const runId = index === 0 ? baseRunId : `${baseRunId}-${index + 1}`;
+    const outputDir = path.join(outputRootDir, runId);
+
+    try {
+      await fs.mkdir(outputDir, { recursive: false });
+      return outputDir;
+    } catch (error) {
+      if (error.code === "EEXIST") {
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  throw new Error("Unable to create a unique auto-crop run folder.");
+}
+
+async function getOutputPath({ outputRootDir, fileName, sourcePath }) {
+  const directOutputPath = path.join(outputRootDir, fileName);
+  const outputMatchesSource =
+    path.resolve(directOutputPath) === path.resolve(sourcePath);
+
+  if (!outputMatchesSource && !(await pathExists(directOutputPath))) {
+    return {
+      outputDir: outputRootDir,
+      outputPath: directOutputPath,
+    };
+  }
+
+  const outputDir = await createUniqueRunFolder(outputRootDir);
+
+  return {
+    outputDir,
+    outputPath: path.join(outputDir, fileName),
+  };
+}
+
 function emitProgress(onProgress, update) {
   if (typeof onProgress !== "function") return;
   onProgress(update);
@@ -345,7 +349,9 @@ function createSkippedItem({ video, reason, startedAt }) {
 }
 
 async function runAutoCrop({ videos, outputRootDir, onProgress }) {
-  const { runId, outputDir } = await createUniqueRunFolder(outputRootDir);
+  const outputDir = outputRootDir;
+  await fs.mkdir(outputDir, { recursive: true });
+
   const manifestInProgressPath = path.join(
     outputDir,
     "manifest.in-progress.json"
@@ -353,7 +359,7 @@ async function runAutoCrop({ videos, outputRootDir, onProgress }) {
   const manifestPath = path.join(outputDir, "manifest.json");
   const manifest = {
     schemaVersion: 1,
-    runId,
+    runId: "auto-crop",
     createdAt: nowIsoString(),
     completedAt: null,
     mode: "ffmpeg-auto-crop",
@@ -410,7 +416,7 @@ async function runAutoCrop({ videos, outputRootDir, onProgress }) {
           video,
           startedAt,
           reason:
-            "Video is not an eligible high-confidence 16:9 nested-border candidate.",
+            "Video does not include a usable nested-border crop rectangle.",
         })
       );
       await writeManifest(manifestInProgressPath, manifest);
@@ -439,9 +445,13 @@ async function runAutoCrop({ videos, outputRootDir, onProgress }) {
       y: Math.round(cropSource.y),
     };
     const target = { width: TARGET_WIDTH, height: TARGET_HEIGHT };
-    const outputPath = await getUniqueOutputPath({
-      outputDir,
+    const {
+      outputDir: itemOutputDir,
+      outputPath,
+    } = await getOutputPath({
+      outputRootDir,
       fileName: video.fileName,
+      sourcePath: video.path,
     });
     const ffmpegFilter = buildFfmpegFilter({ crop, target });
     const item = {
@@ -500,7 +510,7 @@ async function runAutoCrop({ videos, outputRootDir, onProgress }) {
       errorCount: manifest.summary.failed,
       currentFile: video.fileName,
       message: result.ok ? "Cropped video." : "Auto-crop failed.",
-      outputDir,
+      outputDir: itemOutputDir,
     });
   }
 

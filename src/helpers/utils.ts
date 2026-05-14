@@ -228,14 +228,67 @@ export const toVideoRow = (source: VideoSource): VideoRow => ({
 const getBlackBorder = (row: VideoRow): BlackBorderAdjustment | undefined =>
   row.adjustments?.blackBorder
 
-export const isAutoCropCandidate = (row: VideoRow): boolean => {
-  const blackBorder = getBlackBorder(row)
+const hasVisibleCropArea = (blackBorder: BlackBorderAdjustment): boolean => {
+  const visibleArea = blackBorder.visibleArea
+
+  return (
+    typeof visibleArea?.width === 'number' &&
+    Number.isFinite(visibleArea.width) &&
+    visibleArea.width > 0 &&
+    typeof visibleArea.height === 'number' &&
+    Number.isFinite(visibleArea.height) &&
+    visibleArea.height > 0 &&
+    typeof visibleArea.x === 'number' &&
+    Number.isFinite(visibleArea.x) &&
+    visibleArea.x >= 0 &&
+    typeof visibleArea.y === 'number' &&
+    Number.isFinite(visibleArea.y) &&
+    visibleArea.y >= 0
+  )
+}
+
+export type CropReviewStatus = 'Yes' | 'No' | 'Uncertain' | 'Errored'
+
+export const getBlackBorderCropStatus = (
+  adjustments?: VideoAdjustments,
+): CropReviewStatus => {
+  const blackBorder = adjustments?.blackBorder
+
+  if (!blackBorder?.analyzed) {
+    return 'No'
+  }
+
+  switch (blackBorder.classification) {
+    case 'analysis_error':
+      return 'Errored'
+    case 'uncertain':
+      return 'Uncertain'
+    case 'nested_borders':
+    case 'asymmetric_border':
+    case 'pillarboxed':
+    case 'letterboxed':
+      return 'Yes'
+    case 'clean':
+      return 'No'
+  }
+}
+
+export const isCropReviewCandidate = (row: VideoRow): boolean =>
+  getBlackBorderCropStatus(row.adjustments) !== 'No'
+
+export const isBlackBorderAutoCropCandidate = (
+  adjustments?: VideoAdjustments,
+): boolean => {
+  const blackBorder = adjustments?.blackBorder
 
   return (
     blackBorder?.classification === 'nested_borders' &&
-    blackBorder.confidence === 'high' &&
-    blackBorder.recommendedFix?.eligible === true
+    hasVisibleCropArea(blackBorder)
   )
+}
+
+export const isAutoCropCandidate = (row: VideoRow): boolean => {
+  return isBlackBorderAutoCropCandidate(row.adjustments)
 }
 
 export const getBlackBorderLabel = (row: VideoRow): string => {

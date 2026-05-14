@@ -195,22 +195,35 @@
   justify-self: center;
 }
 
-.premiere-status-panel {
+.premiere-status-toast {
+  position: static !important;
+  width: 100% !important;
+  max-width: none !important;
+  transform: none !important;
+}
+
+.premiere-status-toast .p-toast-message {
+  margin: 0;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.premiere-status-toast .p-toast-message-content {
+  padding: 0;
+}
+
+.premiere-status-toast-content {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #FFFFFF;
+  width: 100%;
+  padding: 12px 14px;
   text-align: left;
 }
 
-.premiere-status-message {
-  display: flex;
-  width: 100%;
-  margin: 0;
+.premiere-status-toast-text {
+  overflow-wrap: anywhere;
 }
 
 .premiere-export-dialog {
@@ -702,12 +715,12 @@
     flex-direction: column;
   }
 
-  .premiere-status-panel {
+  .premiere-status-toast-content {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .premiere-status-panel .p-button {
+  .premiere-status-toast-content .p-button {
     width: 100%;
     justify-content: center;
   }

@@ -65,7 +65,17 @@ export function AutoCropDialog({
 }: AutoCropDialogProps) {
   const [mode, setMode] = useState<'choose' | 'auto-crop'>('choose')
   const eligibleVideos = selectedVideos.filter(isAutoCropCandidate)
-  const skippedVideos = selectedVideos.filter((video) => !isAutoCropCandidate(video))
+  const skippedVideos = selectedVideos.filter(
+    (video) => !isAutoCropCandidate(video),
+  )
+  const manualReviewVideos = eligibleVideos.filter((video) => {
+    const recommendedFix = video.adjustments?.blackBorder?.recommendedFix
+
+    return (
+      recommendedFix?.eligible === false ||
+      recommendedFix?.type === 'manual-review'
+    )
+  })
   const skippedReasons = summarizeSkippedReasons(skippedVideos)
   const failedItems =
     result?.items.filter((item) => item.status === 'failed').slice(0, 5) ?? []
@@ -132,20 +142,34 @@ export function AutoCropDialog({
                 <strong>{formatCount(selectedVideos.length)}</strong>
               </div>
               <div>
-                <span>Auto-crop ready</span>
+                <span>Can try crop</span>
                 <strong>{formatCount(eligibleVideos.length)}</strong>
               </div>
               <div>
                 <span>Manual review</span>
-                <strong>{formatCount(selectedVideos.length - eligibleVideos.length)}</strong>
+                <strong>{formatCount(manualReviewVideos.length)}</strong>
               </div>
             </div>
+
+            {manualReviewVideos.length > 0 && (
+              <Message
+                severity="warn"
+                text={`Auto-crop may not work properly for ${formatCount(
+                  manualReviewVideos.length,
+                )} selected video${
+                  manualReviewVideos.length === 1 ? '' : 's'
+                } marked for manual review. You can still try auto-crop or import the selected files into Premiere Pro.`}
+                role="status"
+              />
+            )}
 
             <div className="crop-options-grid">
               <button
                 type="button"
                 className="crop-option-card"
-                disabled={eligibleVideos.length === 0 || isPremiereImportSubmitting}
+                disabled={
+                  eligibleVideos.length === 0 || isPremiereImportSubmitting
+                }
                 onClick={() => setMode('auto-crop')}
               >
                 <span>Auto crop videos</span>
@@ -200,6 +224,18 @@ export function AutoCropDialog({
               text="Creates cropped copies with FFmpeg. Source files are not modified."
               role="status"
             />
+
+            {manualReviewVideos.length > 0 && (
+              <Message
+                severity="warn"
+                text={`Auto-crop may not work properly for ${formatCount(
+                  manualReviewVideos.length,
+                )} selected video${
+                  manualReviewVideos.length === 1 ? '' : 's'
+                } marked for manual review.`}
+                role="status"
+              />
+            )}
 
             <ul className="auto-crop-notes">
               <li>Creates corrected files in a new output run folder.</li>

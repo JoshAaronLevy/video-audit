@@ -11,6 +11,7 @@ import {
   initialAutoCropProgress,
   initialMigrationProgress,
   isAutoCropCandidate,
+  isCropReviewCandidate,
   isVideoLikeFile,
   loadStoredVideoData,
   mergeAuditProgress,
@@ -165,6 +166,10 @@ export function useVideoAuditController() {
   const [isPremiereStatusLoading, setIsPremiereStatusLoading] = useState(false)
   const [premierePresets, setPremierePresets] = useState<PremierePreset[]>([])
   const [selectedVideos, setSelectedVideos] = useState<VideoRow[]>([])
+  const selectedCropReviewVideos = useMemo(
+    () => selectedVideos.filter(isCropReviewCandidate),
+    [selectedVideos],
+  )
   const selectedAutoCropVideos = useMemo(
     () => selectedVideos.filter(isAutoCropCandidate),
     [selectedVideos],
@@ -1065,7 +1070,7 @@ export function useVideoAuditController() {
 
   const handleOpenAutoCropDialog = () => {
     if (
-      selectedAutoCropVideos.length === 0 ||
+      selectedCropReviewVideos.length === 0 ||
       isAuditActive ||
       isTableLoading
     ) {
@@ -1265,7 +1270,7 @@ export function useVideoAuditController() {
   }
 
   const handleSubmitPremiereImport = async () => {
-    if (selectedAutoCropVideos.length === 0) {
+    if (selectedCropReviewVideos.length === 0) {
       setAutoCropError('Select at least one video to import into Premiere.')
       return
     }
@@ -1276,7 +1281,7 @@ export function useVideoAuditController() {
     }
 
     const requestPayload: PremiereImportRequestPayload = {
-      videos: selectedAutoCropVideos.map(toPremiereExportVideo),
+      videos: selectedCropReviewVideos.map(toPremiereExportVideo),
     }
 
     setIsPremiereImportSubmitting(true)
@@ -1531,13 +1536,13 @@ export function useVideoAuditController() {
     !isAuditActive &&
     !isTableLoading
   const canAutoCropSelected =
-    selectedAutoCropVideos.length > 0 &&
+    selectedCropReviewVideos.length > 0 &&
     !isAuditActive &&
     !isTableLoading &&
     !isAutoCropSubmitting &&
     !isPremiereImportSubmitting
   const canImportSelectedToPremiere =
-    selectedAutoCropVideos.length > 0 &&
+    selectedCropReviewVideos.length > 0 &&
     premiereStatus?.status === 'ready' &&
     !isAuditActive &&
     !isTableLoading &&
@@ -1612,7 +1617,7 @@ export function useVideoAuditController() {
     premierePresets,
     premiereStatus,
     selectedPremierePresetId,
-    selectedAutoCropVideos,
+    selectedAutoCropVideos: selectedCropReviewVideos,
     selectedVideos,
     selectedFilesInputRef,
     canRefresh: Boolean(storedPayload),

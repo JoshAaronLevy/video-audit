@@ -62,13 +62,13 @@ The UI shows the friendly preset label, but sends only the stable preset ID to t
 
 Folder audits can run the standard low-resolution/aspect-ratio scan, FFmpeg `cropdetect` black-border analysis, or both. Send `includeLowResolutionAnalysis: false` with `includeBlackBorderAnalysis: true` to run a black-border-only scan. When black-border analysis is enabled, videos are flagged for review when they have asymmetric borders or borders on both axes. Symmetric pillarbox-only and letterbox-only videos are treated as acceptable. Flagged video records may include `adjustments.blackBorder` with the detected visible area, border sizes, confidence, and auto-crop eligibility. Existing saved audit payloads without `includeLowResolutionAnalysis` still default to the standard scan.
 
-Auto-crop is a separate backend workflow from the Premiere bridge. It uses FFmpeg directly, only processes high-confidence 16:9 nested-border candidates, and writes cropped MP4 files into a unique run folder such as:
+Auto-crop is a separate backend workflow from the Premiere bridge. It uses FFmpeg directly, only processes high-confidence 16:9 nested-border candidates, and writes cropped videos directly into:
 
 ```txt
-~/Movies/Edited/AutoCropped/video-audit-crop-<timestamp>/
+~/Movies/Edited/AutoCropped/
 ```
 
-The backend writes `manifest.in-progress.json` during the run and renames it to `manifest.json` when complete. Source files are never modified, overwritten, deleted, or cropped in place. Cropped outputs can later be scanned or selected for the Premiere export workflow if needed.
+Output filenames match the selected source filenames. The backend writes `manifest.in-progress.json` during the run and renames it to `manifest.json` when complete. Source files are never modified, overwritten, deleted, or cropped in place. Cropped outputs can later be scanned or selected for the Premiere export workflow if needed.
 
 ## Video Migration / Replacement
 

@@ -8,16 +8,18 @@ import { InputText } from 'primereact/inputtext'
 import { MultiSelect } from 'primereact/multiselect'
 import { Skeleton } from 'primereact/skeleton'
 import { Tooltip } from 'primereact/tooltip'
-import type { VideoRow, VideoStatus } from '../types/video'
+import type { VideoAdjustments, VideoRow, VideoStatus } from '../types/video'
 import {
   formatDate,
   formatDuration,
   formatNumber,
+  getBlackBorderCropStatus,
   getRowDisplayFile,
   getRowDisplayFileName,
   globalFilterFields,
-  isAutoCropCandidate,
+  isCropReviewCandidate,
 } from '../helpers/utils'
+import type { CropReviewStatus } from '../helpers/utils'
 
 type VideoTableProps = {
   canExportToPremiere: boolean
@@ -62,6 +64,7 @@ type FileSizeFilterValue =
   | 'very-large'
 
 type DirectoryFilterValue = string
+type CropFilterValue = CropReviewStatus
 
 type SelectOption<TValue> = {
   label: string
@@ -72,6 +75,7 @@ const rootDirectoryFilterValue = '__root_videos__'
 
 type ActiveVideoFilters = {
   aspectRatio: boolean | null
+  crop: CropFilterValue[]
   directory: DirectoryFilterValue[]
   duration: DurationFilterValue[]
   fileSize: FileSizeFilterValue[]
@@ -120,6 +124,13 @@ const statusFilterOptions: SelectOption<VideoStatus>[] = [
   { label: 'Queued', value: 'Queued' },
   { label: 'Completed', value: 'Completed' },
   { label: 'Dismissed', value: 'Dismissed' },
+]
+
+const cropFilterOptions: SelectOption<CropFilterValue>[] = [
+  { label: 'Yes', value: 'Yes' },
+  { label: 'No', value: 'No' },
+  { label: 'Uncertain', value: 'Uncertain' },
+  { label: 'Errored', value: 'Errored' },
 ]
 
 const formatRoundedMegabytes = (value: number | null) =>
@@ -278,6 +289,21 @@ const directoryFilterFunction = (
   })
 }
 
+const getCropFilterValue = (
+  adjustments: VideoAdjustments | undefined,
+): CropFilterValue => getBlackBorderCropStatus(adjustments)
+
+const cropFilterFunction = (
+  value: VideoAdjustments | null | undefined,
+  filter: CropFilterValue[] | null,
+) => {
+  if (!filter || filter.length === 0) {
+    return true
+  }
+
+  return filter.includes(getCropFilterValue(value ?? undefined))
+}
+
 const matchesVideoFilters = (
   row: VideoRow,
   filters: ActiveVideoFilters,
@@ -297,6 +323,8 @@ const matchesVideoFilters = (
   (excludedDimension === 'aspectRatio' ||
     filters.aspectRatio === null ||
     row.isWrongAspectRatio === filters.aspectRatio) &&
+  (excludedDimension === 'crop' ||
+    cropFilterFunction(row.adjustments, filters.crop)) &&
   (excludedDimension === 'status' ||
     filters.status === null ||
     row.status === filters.status)
@@ -391,6 +419,18 @@ const buildStatusFilterOptions = (
         (row) =>
           matchesVideoFilters(row, filters, 'status') &&
           row.status === option.value,
+      ).length,
+    ),
+  )
+
+const buildCropFilterOptions = (rows: VideoRow[], filters: ActiveVideoFilters) =>
+  cropFilterOptions.map((option) =>
+    withCountLabel(
+      option,
+      rows.filter(
+        (row) =>
+          matchesVideoFilters(row, filters, 'crop') &&
+          getCropFilterValue(row.adjustments) === option.value,
       ).length,
     ),
   )
@@ -512,6 +552,26 @@ const statusFilterTemplate = (
   />
 )
 
+const cropFilterTemplate = (
+  options: FilterTemplateOptions<CropFilterValue[] | null>,
+  cropFilterOptions: SelectOption<CropFilterValue>[],
+  onFilterChange: (value: CropFilterValue[]) => void,
+) => (
+  <MultiSelect
+    value={options.value ?? []}
+    options={cropFilterOptions}
+    onChange={(event) => {
+      const nextValue = event.value ?? []
+      onFilterChange(nextValue)
+      options.filterApplyCallback(nextValue)
+    }}
+    placeholder="Crop"
+    className="table-column-filter"
+    display="chip"
+    maxSelectedLabels={1}
+  />
+)
+
 const fileTemplate = (row: VideoRow) => {
   const displayFileName = getRowDisplayFileName(row)
   const tooltipValue = getRowDisplayFile(row)
@@ -554,7 +614,7 @@ const aspectRatioTemplate = (row: VideoRow) => (
 const cropTemplate = (row: VideoRow) => {
   return (
     <div className="cell-stack">
-      <span>{isAutoCropCandidate(row) ? 'Yes' : 'No'}</span>
+      <span>{getBlackBorderCropStatus(row.adjustments)}</span>
     </div>
   )
 }
@@ -610,11 +670,13 @@ export function VideoTable({
   const [aspectRatioFilterValue, setAspectRatioFilterValue] = useState<
     boolean | null
   >(null)
+  const [cropFilterValue, setCropFilterValue] = useState<CropFilterValue[]>([])
   const [statusFilterValue, setStatusFilterValue] =
     useState<VideoStatus | null>(null)
   const activeFilters = useMemo<ActiveVideoFilters>(
     () => ({
       aspectRatio: aspectRatioFilterValue,
+      crop: cropFilterValue,
       directory: directoryFilterValue,
       duration: durationFilterValue,
       fileSize: fileSizeFilterValue,
@@ -624,6 +686,7 @@ export function VideoTable({
     }),
     [
       aspectRatioFilterValue,
+      cropFilterValue,
       directoryFilterValue,
       durationFilterValue,
       fileSizeFilterValue,
@@ -656,6 +719,10 @@ export function VideoTable({
     () => buildAspectRatioFilterOptions(videoRows, activeFilters),
     [activeFilters, videoRows],
   )
+  const countedCropFilterOptions = useMemo(
+    () => buildCropFilterOptions(videoRows, activeFilters),
+    [activeFilters, videoRows],
+  )
   const countedStatusFilterOptions = useMemo(
     () => buildStatusFilterOptions(videoRows, activeFilters),
     [activeFilters, videoRows],
@@ -668,8 +735,8 @@ export function VideoTable({
       ),
     [selectedVideos],
   )
-  const selectedAutoCropVideos = useMemo(
-    () => selectedVideos.filter(isAutoCropCandidate),
+  const selectedCropReviewVideos = useMemo(
+    () => selectedVideos.filter(isCropReviewCandidate),
     [selectedVideos],
   )
   const selectedVideoCountLabel =
@@ -681,8 +748,8 @@ export function VideoTable({
       ? `Export to Premiere (${selectedVideos.length.toLocaleString()})`
       : 'Export to Premiere'
   const cropOptionsButtonLabel =
-    selectedAutoCropVideos.length > 0
-      ? `Crop Options (${selectedAutoCropVideos.length.toLocaleString()})`
+    selectedCropReviewVideos.length > 0
+      ? `Crop Options (${selectedCropReviewVideos.length.toLocaleString()})`
       : 'Crop Options'
 
   const tableHeader = (
@@ -761,7 +828,7 @@ export function VideoTable({
         selection={selectedVideos}
         onSelectionChange={(event) => {
           const nextSelectedVideos = event.value as VideoRow[]
-          console.log('[VideoTable] Selected videos:', nextSelectedVideos)
+          console.log('[VideoTable] Selected videos:', JSON.stringify(nextSelectedVideos))
           onSelectedVideosChange(nextSelectedVideos)
         }}
         metaKeySelection={false}
@@ -889,6 +956,17 @@ export function VideoTable({
         <Column
           field="adjustments"
           header="Crop"
+          filter={!isLoading}
+          filterMatchMode={FilterMatchMode.CUSTOM}
+          filterFunction={cropFilterFunction}
+          filterElement={(options) =>
+            cropFilterTemplate(
+              options as FilterTemplateOptions<CropFilterValue[] | null>,
+              countedCropFilterOptions,
+              setCropFilterValue,
+            )
+          }
+          showFilterMenu={false}
           body={isLoading ? skeletonTemplate : cropTemplate}
           style={{ width: '14%' }}
         />
