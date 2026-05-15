@@ -315,6 +315,7 @@ export function AuditProgressPanel({
             type="button"
             label="Cancel"
             severity="danger"
+            raised
             size="small"
             onClick={onCancelAudit}
           />

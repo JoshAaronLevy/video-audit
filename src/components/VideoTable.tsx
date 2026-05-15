@@ -865,7 +865,7 @@ export function VideoTable({
   canQueuePremiereExportVideo,
   canStartMigration,
   // canRefresh,
-  fileName,
+  // fileName,
   globalFilter,
   // isAuditActive,
   isLoading,
@@ -1200,6 +1200,7 @@ export function VideoTable({
         aria-label="View details"
         size="small"
         severity="info"
+        raised
         className="row-action-button"
         onClick={(event) => {
           event.stopPropagation()
@@ -1213,6 +1214,7 @@ export function VideoTable({
         aria-label="Export to Premiere"
         size="small"
         severity="success"
+        raised
         disabled={!canQueuePremiereExportVideo(row)}
         className="row-action-button"
         onClick={(event) => {
@@ -1227,6 +1229,7 @@ export function VideoTable({
         aria-label="Crop options"
         size="small"
         severity="warning"
+        raised
         disabled={!canOpenCropOptionsForVideo(row)}
         className="row-action-button"
         onClick={(event) => {
@@ -1241,7 +1244,7 @@ export function VideoTable({
         aria-label="Remove from table"
         size="small"
         severity="danger"
-        outlined
+        raised
         className="row-action-button"
         onClick={(event) => {
           event.stopPropagation()
@@ -1257,20 +1260,23 @@ export function VideoTable({
       <Button
         type="button"
         label="Cancel"
-        severity="secondary"
-        text
+        severity="info"
+        raised
         onClick={closeCropActionDialog}
       />
       <Button
         type="button"
         label="Auto"
         severity="warning"
+        raised
         disabled={!cropActionVideo || !isAutoCropCandidate(cropActionVideo)}
         onClick={handleCropActionAuto}
       />
       <Button
         type="button"
         label="Premiere"
+        severity="success"
+        raised
         disabled={!cropActionVideo || !canImportVideoToPremiere(cropActionVideo)}
         onClick={handleCropActionPremiere}
       />
@@ -1280,18 +1286,13 @@ export function VideoTable({
   const tableHeader = (
     <div className="table-header">
       <div>
-        <h2 className="table-title">Videos</h2>
-        <p>
-          {isLoading
-            ? 'Refreshing videos...'
-            : `${videoRows.length.toLocaleString()} flagged videos found`}
-          {!isLoading && fileName ? ` in ${fileName}` : ''}
-          {/* {!isLoading && isPersisted ? ' saved locally' : ''} */}
-        </p>
         {!isLoading && (
-          <p className="table-visible-count">
-            {visibleVideoCount.toLocaleString()} Videos{selectedVideoCountLabel}
-          </p>
+          <>
+            <h2 className="table-title">Videos</h2>
+            <p className="table-visible-count">
+              {visibleVideoCount.toLocaleString()} Videos{selectedVideoCountLabel}
+            </p>
+          </>
         )}
       </div>
       <div className="table-actions">
@@ -1307,8 +1308,8 @@ export function VideoTable({
         <Button
           type="button"
           label={thumbnailButtonLabel}
-          severity="secondary"
-          outlined
+          severity="info"
+          raised
           disabled={
             !canGenerateThumbnails ||
             isGeneratingThumbnails ||
@@ -1320,21 +1321,24 @@ export function VideoTable({
         <Button
           type="button"
           label={exportButtonLabel}
+          severity="help"
+          raised
           disabled={!canExportToPremiere}
           onClick={onExportToPremiereClick}
         />
         <Button
           type="button"
           label={cropOptionsButtonLabel}
-          severity="secondary"
+          severity="warning"
+          raised
           disabled={!canAutoCropSelected}
           onClick={onAutoCropSelectedClick}
         />
         <Button
           type="button"
           label="Migrate New Edits"
-          severity="secondary"
-          outlined
+          severity="success"
+          raised
           disabled={!canStartMigration}
           onClick={onMigrateNewEditsClick}
         />
@@ -1342,15 +1346,15 @@ export function VideoTable({
           type="button"
           label="Remove Selected Videos"
           severity="danger"
-          outlined
+          raised
           disabled={isLoading || selectedVideos.length === 0}
           onClick={() => onRemoveVideosClick(selectedVideos)}
         />
         <Button
           type="button"
           label="Restore Removed Videos"
-          severity="secondary"
-          outlined
+          severity="info"
+          raised
           disabled={isLoading || removedVideoCount === 0}
           onClick={onRestoreRemovedVideosClick}
         />
@@ -1364,8 +1368,8 @@ export function VideoTable({
         {/* <Button
           type="button"
           label="Refresh"
-          severity="secondary"
-          outlined
+          severity="info"
+          raised
           disabled={isAuditActive || isLoading || !canRefresh}
           onClick={onRefreshData}
         /> */}
@@ -1373,6 +1377,7 @@ export function VideoTable({
           type="button"
           label="Clear cache"
           severity="danger"
+          raised
           onClick={onClearData}
         />
       </div>
@@ -1667,8 +1672,8 @@ export function VideoTable({
                   <Button
                     type="button"
                     label={additionalThumbnailButtonLabel}
-                    severity="secondary"
-                    outlined
+                    severity="info"
+                    raised
                     disabled={isFetchingPreviewFrames}
                     loading={previewFetchMode === 'additional'}
                     onClick={() => void handleFetchPreviewFrames('additional')}
@@ -1677,7 +1682,8 @@ export function VideoTable({
                 <Button
                   type="button"
                   label="Fetch New Thumbnails"
-                  severity="secondary"
+                  severity="success"
+                  raised
                   disabled={isFetchingPreviewFrames}
                   loading={previewFetchMode === 'fresh'}
                   onClick={() => void handleFetchPreviewFrames('fresh')}

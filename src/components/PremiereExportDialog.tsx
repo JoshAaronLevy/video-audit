@@ -45,16 +45,16 @@ export function PremiereExportDialog({
       <Button
         type="button"
         label="Cancel"
-        severity="secondary"
-        text
+        severity="warning"
+        raised
         disabled={isSubmitting || isImportSubmitting}
         onClick={onHide}
       />
       <Button
         type="button"
         label="Edit in Premiere Pro"
-        severity="secondary"
-        outlined
+        severity="info"
+        raised
         disabled={!canImportToPremiere || isSubmitting || isImportSubmitting}
         loading={isImportSubmitting}
         onClick={onImportToPremiere}
@@ -62,6 +62,8 @@ export function PremiereExportDialog({
       <Button
         type="button"
         label="Queue export"
+        severity="success"
+        raised
         disabled={
           !selectedPresetId ||
           !hasAvailablePresets ||

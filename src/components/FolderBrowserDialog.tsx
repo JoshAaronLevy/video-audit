@@ -366,14 +366,16 @@ export function FolderBrowserDialog({
       <Button
         type="button"
         label="Cancel"
-        severity="secondary"
-        text
+        severity="warning"
+        raised
         disabled={isSubmitting}
         onClick={onHide}
       />
       <Button
         type="button"
         label="Scan Selected"
+        severity="success"
+        raised
         disabled={
           isAuditActive ||
           isBusy ||
@@ -446,8 +448,8 @@ export function FolderBrowserDialog({
           <Button
             type="button"
             label="Refresh Tree"
-            severity="secondary"
-            outlined
+            severity="info"
+            raised
             disabled={isCheckingRoot || isFetchingTree || isRootUnavailable}
             loading={isFetchingTree}
             onClick={() => void refreshTree(rootPath)}
@@ -455,16 +457,16 @@ export function FolderBrowserDialog({
           <Button
             type="button"
             label="Select All"
-            severity="secondary"
-            outlined
+            severity="success"
+            raised
             disabled={!hasTree || isBusy}
             onClick={() => setSelectionKeys(buildAllSelectionKeys(tree?.nodes ?? []))}
           />
           <Button
             type="button"
             label="Clear Selection"
-            severity="secondary"
-            text
+            severity="warning"
+            raised
             disabled={Object.keys(selectionKeys).length === 0 || isBusy}
             onClick={() => setSelectionKeys({})}
           />

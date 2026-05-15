@@ -1112,6 +1112,11 @@
   font-size: 0.8rem;
 }
 
+.p-toast .p-toast-message.p-toast-message-warn {
+  background: rgba(255, 242, 226, 0.9) !important;
+  color: #161D22 !important;
+}
+
 @media (max-width: 760px) {
   .app-shell,
   .app-shell.has-data {

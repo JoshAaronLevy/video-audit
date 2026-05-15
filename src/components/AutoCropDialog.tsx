@@ -99,15 +99,15 @@ export function AutoCropDialog({
 
   const footer = result || isCanceled ? (
     <div className="auto-crop-dialog-actions">
-      <Button type="button" label="Close" onClick={handleHide} />
+      <Button type="button" label="Close" severity="info" raised onClick={handleHide} />
     </div>
   ) : mode === 'choose' ? (
     <div className="auto-crop-dialog-actions">
       <Button
         type="button"
         label="Cancel"
-        severity="secondary"
-        text
+        severity="warning"
+        raised
         disabled={isPremiereImportSubmitting}
         onClick={handleHide}
       />
@@ -117,13 +117,15 @@ export function AutoCropDialog({
       <Button
         type="button"
         label={isSubmitting ? 'Cancel Auto-Crop' : 'Back'}
-        severity="secondary"
-        text
+        severity={isSubmitting ? 'danger' : 'info'}
+        raised
         onClick={isSubmitting ? onCancel : () => setManualMode('choose')}
       />
       <Button
         type="button"
         label="Start Auto-Crop"
+        severity="success"
+        raised
         disabled={eligibleVideos.length === 0 || isSubmitting}
         loading={isSubmitting}
         onClick={onSubmit}

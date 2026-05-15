@@ -46,7 +46,7 @@ export function MigrationResultDialog({
   const archiveRunDir = result?.archiveRunDir || scan?.archiveRunDir || ''
   const footer = (
     <div className="migration-dialog-actions">
-      <Button type="button" label="Close" onClick={onHide} />
+      <Button type="button" label="Close" severity="info" raised onClick={onHide} />
     </div>
   )
 

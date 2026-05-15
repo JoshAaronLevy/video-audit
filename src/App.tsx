@@ -181,16 +181,16 @@ function App() {
               <Button
                 type="button"
                 label="Refresh"
-                severity="secondary"
-                outlined
+                severity="info"
+                raised
                 disabled={isAuditActive || isTableLoading || !canRefresh}
                 onClick={handleRefreshData}
               />
               <Button
                 type="button"
                 label="Clear cache"
-                severity="secondary"
-                text
+                severity="danger"
+                raised
                 onClick={handleClearData}
               />
             </div>

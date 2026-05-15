@@ -165,14 +165,16 @@ export function MigrationScanDialog({
       <Button
         type="button"
         label="Cancel"
-        severity="secondary"
-        text
+        severity="warning"
+        raised
         disabled={isBusy}
         onClick={onHide}
       />
       <Button
         type="button"
         label="Copy New Files and Archive Old Copies"
+        severity="success"
+        raised
         disabled={!canExecute}
         loading={isExecuting}
         onClick={onExecute}
@@ -183,14 +185,16 @@ export function MigrationScanDialog({
       <Button
         type="button"
         label="Cancel"
-        severity="secondary"
-        text
+        severity="warning"
+        raised
         disabled={isBusy}
         onClick={onHide}
       />
       <Button
         type="button"
         label="Scan New Edits"
+        severity="success"
+        raised
         disabled={!canStartScan}
         loading={isScanning}
         onClick={() => onStartScan()}
@@ -232,8 +236,8 @@ export function MigrationScanDialog({
               <Button
                 type="button"
                 label="Select Folder"
-                severity="secondary"
-                outlined
+                severity="info"
+                raised
                 disabled={isBusy}
                 onClick={onSelectFolderClick}
               />

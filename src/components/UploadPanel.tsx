@@ -143,8 +143,8 @@ export function UploadPanel({
           <Button
             type="button"
             label="Retry"
-            severity="secondary"
-            outlined
+            severity="info"
+            raised
             loading={isEditedFolderStatusLoading}
             onClick={checkEditedFolderStatus}
           />
@@ -247,6 +247,8 @@ export function UploadPanel({
             <Button
               type="button"
               label="Select Folder(s)"
+              severity="success"
+              raised
               className="upload-button"
               disabled={!canStartAudit}
               onClick={onFolderAuditClick}
@@ -254,6 +256,8 @@ export function UploadPanel({
             <Button
               type="button"
               label="Scan files"
+              severity="info"
+              raised
               className="upload-button upload-button-secondary"
               disabled={!canStartAudit}
               onClick={onFilesAuditClick}

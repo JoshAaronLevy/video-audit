@@ -50,21 +50,23 @@ export function ThumbnailGenerationDialog({
 
   const footer = result ? (
     <div className="thumbnail-dialog-actions">
-      <Button type="button" label="Close" onClick={onHide} />
+      <Button type="button" label="Close" severity="info" raised onClick={onHide} />
     </div>
   ) : (
     <div className="thumbnail-dialog-actions">
       <Button
         type="button"
         label="Cancel"
-        severity="secondary"
-        text
+        severity="warning"
+        raised
         disabled={isGenerating}
         onClick={onHide}
       />
       <Button
         type="button"
         label={hasSelection ? 'Generate' : 'Generate for All'}
+        severity="success"
+        raised
         disabled={isGenerating || requestedCount === 0}
         loading={isGenerating}
         onClick={onStart}

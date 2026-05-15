@@ -88,8 +88,8 @@ export function PremiereStatusBanner({
           <Button
             type="button"
             label="Retry"
-            severity="secondary"
-            outlined
+            severity="info"
+            raised
             loading={isLoading}
             onClick={onRetry}
           />
