@@ -56,7 +56,7 @@ Suggested rules:
 - Update the ETA whenever `processedFiles` changes.
 - Let the existing 1-second timer make the displayed remaining time count down between recalculations.
 - Clamp remaining time to `0s` when the scan completes.
-- Hide remaining time on canceled/error states, or show the last known estimate only if we decide it is useful.
+- Keep the last known remaining-time estimate visible on canceled/error states as a reference.
 
 This is intentionally based on real observed scan throughput rather than file size. The audit currently does mixed work per file: metadata reads, ffprobe, and optional black-border analysis. File size alone may not predict this well because codec, duration, file health, and enabled analysis options can matter more than bytes.
 
@@ -85,7 +85,7 @@ Then show a small completion-only diagnostic in the progress panel, for example:
 First estimate: 8m remaining at 10/120 files; actual from then: 9m 12s
 ```
 
-This can be removed later or hidden behind a debug flag once we trust the method.
+Keep this visible permanently for now, but make it visually subtle and separate from the main ETA display. It can be removed later if it proves noisy.
 
 ## Approach Options
 
@@ -199,7 +199,9 @@ In `AuditProgressPanel.tsx`:
 4. Store the first valid ETA snapshot once `processedFiles >= 10` and analyzing has lasted at least 15 seconds.
 5. Recalculate the base ETA whenever `processedFiles` changes.
 6. Between progress events, subtract local elapsed seconds from the most recent estimate so it counts down smoothly.
-7. On completion, compare the first estimate to actual remaining time and render the diagnostic.
+7. During `walking`, show `Remaining: calculating...` for larger scans so the user knows an estimate is coming, but do not use walking time in the ETA math.
+8. On completion, compare the first estimate to actual remaining time and render the diagnostic.
+9. On canceled/error states, keep the last known remaining-time estimate visible without trying to continue recalculating it.
 
 Potential display states:
 
@@ -208,12 +210,3 @@ Elapsed: 0m 42s | Remaining: calculating...
 Elapsed: 2m 14s | Remaining: about 6m
 Elapsed: 11m 26s | First estimate: 8m remaining at 10/120 files; actual from then: 9m 12s
 ```
-
-## Open Questions
-
-- Should the completion diagnostic stay visible permanently, or only while we test the feature?
-  - Answer: Keep it permanently for now, but make it visually subtle and separate from the main ETA display (right next to it is fine). It can be removed later if we find it is not useful or just adds noise.
-- Should ETA include the initial walking/discovery phase, or only the analyzing phase after the final queue size is known?
-  - Answer: Only the analyzing phase, since that is when we have a stable `totalFiles` and are doing the work that dominates scan time. The walking phase can be very variable and may not reflect the per-file scan time well. So during that time, we can show "Remaining: calculating..." to set the expectation that we don't have enough data for an estimate yet.
-- Should canceled/error states keep the last ETA visible, or hide ETA entirely?
-  - Answer: Keep it. It's possible the ETA was the reason for the cancel in the first place, so hiding it would lose that context. We can show the last known estimate as a reference, even if the scan did not complete. It may also help us understand if the ETA was wildly off when we see a cancel.

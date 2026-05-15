@@ -186,6 +186,11 @@
   font-size: 0.92rem;
 }
 
+.audit-progress-diagnostic {
+  color: #52606a;
+  font-size: 0.84rem;
+}
+
 .error-alert {
   max-width: min(520px, 100%);
 }
