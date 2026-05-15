@@ -1017,12 +1017,14 @@ export function useVideoAuditController() {
     }).then(setIsPersisted)
   }
 
-  const handleRemoveVideosFromTable = (videos: VideoRow[]) => {
-    if (!videoRows || videos.length === 0) {
-      return
+  const removeVideoPathsFromTable = (
+    removedVideoPaths: Set<string>,
+    toastMessage?: { summary: string; detail: string; life?: number },
+  ) => {
+    if (!videoRows || removedVideoPaths.size === 0) {
+      return 0
     }
 
-    const removedVideoPaths = new Set(videos.map((video) => video.path))
     let removedCount = 0
     const nextRows = videoRows.map((row) => {
       if (!removedVideoPaths.has(row.path) || row.visible === false) {
@@ -1034,7 +1036,7 @@ export function useVideoAuditController() {
     })
 
     if (removedCount === 0) {
-      return
+      return 0
     }
 
     setVideoRows(nextRows)
@@ -1044,13 +1046,20 @@ export function useVideoAuditController() {
     persistVideoRows(nextRows)
     toast.current?.show({
       severity: 'success',
-      summary: 'Videos removed',
+      summary: toastMessage?.summary ?? 'Videos removed',
       detail:
-        removedCount === 1
+        toastMessage?.detail ??
+        (removedCount === 1
           ? '1 video was removed from the table.'
-          : `${removedCount.toLocaleString()} videos were removed from the table.`,
-      life: 3000,
+          : `${removedCount.toLocaleString()} videos were removed from the table.`),
+      life: toastMessage?.life ?? 3000,
     })
+
+    return removedCount
+  }
+
+  const handleRemoveVideosFromTable = (videos: VideoRow[]) => {
+    removeVideoPathsFromTable(new Set(videos.map((video) => video.path)))
   }
 
   const handleRestoreRemovedVideos = () => {
@@ -1566,6 +1575,13 @@ export function useVideoAuditController() {
       detail: `${result.summary.succeeded.toLocaleString()} videos fixed, ${result.summary.failed.toLocaleString()} failed.`,
       life: 5200,
     })
+
+    const fixedVideoPaths = new Set(
+      result.items
+        .filter((item) => item.status === 'success' && item.sourcePath)
+        .map((item) => item.sourcePath),
+    )
+    removeVideoPathsFromTable(fixedVideoPaths)
   }
 
   const handleStartAutoFix = async () => {
@@ -2033,6 +2049,8 @@ export function useVideoAuditController() {
         )
       }
 
+      removeVideoPathsFromTable(new Set(videos.map((video) => video.path)))
+
       if (source === 'crop') {
         setIsAutoCropDialogVisible(false)
         setAutoCropDialogVideos(null)
@@ -2040,8 +2058,6 @@ export function useVideoAuditController() {
         setAutoCropError(null)
         setAutoCropResult(null)
         setAutoCropProgress(initialAutoCropProgress)
-      } else {
-        setSelectedVideos([])
       }
       toast.current?.show({
         severity: 'success',

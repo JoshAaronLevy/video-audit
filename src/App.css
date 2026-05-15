@@ -790,6 +790,19 @@
   font-weight: 700;
 }
 
+.table-count-row {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.table-count-row .p-button {
+  padding: 0.2rem 0.45rem;
+  font-size: 0.75rem;
+  line-height: 1.1;
+}
+
 .table-actions {
   display: flex;
   align-items: center;

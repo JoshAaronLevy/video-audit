@@ -990,6 +990,10 @@ export function VideoTable({
     selectedVideos.length > 0
       ? ` - ${selectedVideos.length.toLocaleString()} Selected (${formatSelectedVideoSize(selectedVideosSizeMB)})`
       : ''
+  const removedVideoCountLabel =
+    removedVideoCount > 0
+      ? ` - ${removedVideoCount.toLocaleString()} Removed`
+      : ''
   const editButtonLabel =
     selectedVideos.length > 0
       ? `Edit in Premiere (${selectedVideos.length.toLocaleString()})`
@@ -1002,6 +1006,10 @@ export function VideoTable({
     selectedVideos.length > 0
       ? `Generate Thumbnails (${selectedVideos.length.toLocaleString()})`
       : 'Generate Thumbnails'
+  const removeVideosButtonLabel =
+    selectedVideos.length > 0
+      ? `Remove Videos (${selectedVideos.length.toLocaleString()})`
+      : 'Remove Videos'
   const currentPreviewFrameResult = detailVideo
     ? (previewFramesByVideoPath[detailVideo.path] ??
       getRowPreviewFrameResult(detailVideo))
@@ -1187,9 +1195,24 @@ export function VideoTable({
         {!isLoading && (
           <>
             <h2 className="table-title">Videos</h2>
-            <p className="table-visible-count">
-              {visibleVideoCount.toLocaleString()} Videos{selectedVideoCountLabel}
-            </p>
+            <div className="table-count-row">
+              <p className="table-visible-count">
+                {visibleVideoCount.toLocaleString()} Videos
+                {removedVideoCountLabel}
+                {selectedVideoCountLabel}
+              </p>
+              {removedVideoCount > 0 && (
+                <Button
+                  type="button"
+                  label="Restore"
+                  size="small"
+                  severity="secondary"
+                  text
+                  disabled={isLoading}
+                  onClick={onRestoreRemovedVideosClick}
+                />
+              )}
+            </div>
           </>
         )}
       </div>
@@ -1244,19 +1267,11 @@ export function VideoTable({
         />
         <Button
           type="button"
-          label="Remove Selected Videos"
+          label={removeVideosButtonLabel}
           severity="danger"
           raised
           disabled={isLoading || selectedVideos.length === 0}
           onClick={() => onRemoveVideosClick(selectedVideos)}
-        />
-        <Button
-          type="button"
-          label="Restore Removed Videos"
-          severity="info"
-          raised
-          disabled={isLoading || removedVideoCount === 0}
-          onClick={onRestoreRemovedVideosClick}
         />
         <InputText
           value={globalFilter}
