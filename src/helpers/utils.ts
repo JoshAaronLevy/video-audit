@@ -3,6 +3,8 @@ import type {
   AuditProgressPayload,
   AutoCropProgress,
   AutoCropProgressPayload,
+  AutoFixProgress,
+  AutoFixProgressPayload,
   BlackBorderAdjustment,
   DefaultRootStatusResponse,
   FolderPathManifestItem,
@@ -90,6 +92,21 @@ export const initialAutoCropProgress: AutoCropProgress = {
   errorCount: 0,
   currentFile: null,
   message: null,
+}
+
+export const initialAutoFixProgress: AutoFixProgress = {
+  jobId: null,
+  status: 'idle',
+  phase: null,
+  totalVideos: null,
+  processedVideos: 0,
+  currentFile: null,
+  currentProfile: null,
+  currentAction: null,
+  message: null,
+  succeeded: 0,
+  failed: 0,
+  outputDirectory: null,
 }
 
 export const initialMigrationProgress: MigrationProgress = {
@@ -1132,6 +1149,36 @@ export const mergeAutoCropProgress = (
   message: payload.message ?? currentProgress.message,
 })
 
+export const mergeAutoFixProgress = (
+  currentProgress: AutoFixProgress,
+  payload: AutoFixProgressPayload,
+  status: AutoFixProgress['status'] = 'running',
+): AutoFixProgress => ({
+  ...currentProgress,
+  jobId: payload.jobId ?? currentProgress.jobId,
+  status,
+  phase: payload.phase ?? currentProgress.phase,
+  totalVideos:
+    typeof payload.totalVideos === 'number'
+      ? payload.totalVideos
+      : currentProgress.totalVideos,
+  processedVideos:
+    typeof payload.processedVideos === 'number'
+      ? payload.processedVideos
+      : currentProgress.processedVideos,
+  currentFile: payload.currentFile ?? currentProgress.currentFile,
+  currentProfile: payload.currentProfile ?? currentProgress.currentProfile,
+  currentAction: payload.currentAction ?? currentProgress.currentAction,
+  message: payload.message ?? currentProgress.message,
+  succeeded:
+    typeof payload.succeeded === 'number'
+      ? payload.succeeded
+      : currentProgress.succeeded,
+  failed:
+    typeof payload.failed === 'number' ? payload.failed : currentProgress.failed,
+  outputDirectory: payload.outputDirectory ?? currentProgress.outputDirectory,
+})
+
 export const mergeMigrationProgress = (
   currentProgress: MigrationProgress,
   payload: Partial<MigrationProgressPayload>,
@@ -1210,6 +1257,13 @@ export const getAutoCropPercent = (autoCropProgress: AutoCropProgress) =>
   autoCropProgress.totalFiles && autoCropProgress.totalFiles > 0
     ? Math.round(
         (autoCropProgress.processedFiles / autoCropProgress.totalFiles) * 100,
+      )
+    : null
+
+export const getAutoFixPercent = (autoFixProgress: AutoFixProgress) =>
+  autoFixProgress.totalVideos && autoFixProgress.totalVideos > 0
+    ? Math.round(
+        (autoFixProgress.processedVideos / autoFixProgress.totalVideos) * 100,
       )
     : null
 

@@ -6,7 +6,6 @@ This is the Premiere Pro UXP plugin for the Video Audit filesystem bridge.
 
 - Premiere Pro 26.0 or newer.
 - UXP Developer Tool.
-- Adobe Media Encoder for queued exports.
 
 ## Development Loading
 
@@ -26,10 +25,9 @@ npm run dev
 The plugin uses `localFileSystem: "request"`, so it must ask for folder access instead of reading arbitrary paths directly.
 
 1. Click `Select bridge folder` and choose `~/VideoAudit/premiere-bridge/`.
-2. Click `Select output folder` and choose `/Users/joshlevy/Movies/Edited`.
-3. Keep the panel open while processing requests.
+2. Keep the panel open while processing import requests.
 
-The backend creates the bridge folders when `/api/premiere/status` or `/api/premiere/export-requests` runs. If the plugin asks for folder access before the backend has created the bridge folder, create `~/VideoAudit/premiere-bridge/` manually or load the Vite app and click Retry once.
+The backend creates the bridge folders when `/api/premiere/status`, `/api/premiere/import-requests`, or the deprecated compatibility route `/api/premiere/export-requests` runs. If the plugin asks for folder access before the backend has created the bridge folder, create `~/VideoAudit/premiere-bridge/` manually or load the Vite app and click Retry once.
 
 The plugin writes:
 
@@ -43,24 +41,14 @@ The backend writes requests to:
 ~/VideoAudit/premiere-bridge/requests/
 ```
 
-Place the real Adobe export preset at:
-
-```txt
-~/VideoAudit/premiere-bridge/presets/h264-1080p-12mbps.epr
-```
-
-The repo does not generate this `.epr` file in JavaScript; export it from Adobe's preset workflow so Premiere and Adobe Media Encoder can read the native preset.
-
 ## Runtime Flow
 
-The plugin validates bridge access, writes heartbeat status, polls `requests/`, imports each selected video into the active Premiere project, creates one 1920x1080 `Video Audit` sequence per video, and queues each sequence in Adobe Media Encoder with the selected `.epr` preset. It moves successful requests to `completed/` with queued job details and failed requests to `failed/` with error information.
+The plugin validates bridge access, writes heartbeat status, polls `requests/`, and imports each selected video into the active Premiere project. It moves successful requests to `completed/` with import details and failed requests to `failed/` with error information.
 
-The plugin only queues jobs in Adobe Media Encoder. It does not start the Media Encoder queue automatically.
+Automatic fixes are handled by the backend FFmpeg Auto-Fix workflow, not by Premiere or Adobe Media Encoder. The plugin still contains older export helpers for compatibility with old request files, but the active backend routes now write import-only requests.
 
 ## MVP Limitations
 
 - Keep the plugin panel open while processing requests.
-- Only the configured output folder `/Users/joshlevy/Movies/Edited` is supported.
-- Only real `.epr` preset files are supported; encoding settings are not generated in JavaScript.
 - The plugin does not parse or modify `.prproj` files directly.
-- The plugin does not perform intelligent reframing, subject tracking, scene analysis, or automatic AME queue start.
+- The plugin does not perform intelligent reframing, subject tracking, scene analysis, encoding, or automatic AME queue start.

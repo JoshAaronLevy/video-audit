@@ -4,12 +4,11 @@ import { Button } from 'primereact/button'
 import 'primereact/resources/themes/lara-light-cyan/theme.css'
 import 'primereact/resources/primereact.min.css'
 import 'primeflex/primeflex.css'
-import { AutoCropDialog } from './components/AutoCropDialog'
+import { AutoFixDialog } from './components/AutoFixDialog'
 import { DirectoryInput } from './components/DirectoryInput'
 import { FolderBrowserDialog } from './components/FolderBrowserDialog'
 import { MigrationResultDialog } from './components/MigrationResultDialog'
 import { MigrationScanDialog } from './components/MigrationScanDialog'
-import { PremiereExportDialog } from './components/PremiereExportDialog'
 import { PremiereStatusBanner } from './components/PremiereStatusBanner'
 import { ThumbnailGenerationDialog } from './components/ThumbnailGenerationDialog'
 import { UploadPanel } from './components/UploadPanel'
@@ -20,21 +19,16 @@ import './App.css'
 function App() {
   const {
     auditedRootDirectory,
-    autoCropError,
-    autoCropDialogInitialMode,
-    autoCropPercent,
-    autoCropProgress,
-    autoCropResult,
+    autoFixDestinationRoot,
+    autoFixError,
+    autoFixPercent,
+    autoFixProgress,
+    autoFixResult,
     auditPercent,
     auditProgress,
-    canAutoCropSelected,
-    canExportToPremiere,
+    canAutoFixSelected,
+    canEditSelectedInPremiere,
     canGenerateThumbnails,
-    canImportPremiereExportDialogVideos,
-    canImportSelectedToPremiere,
-    canImportVideoToPremiere,
-    canOpenCropOptionsForVideo,
-    canQueuePremiereExportVideo,
     canRefresh,
     canStartMigration,
     checkPremiereStatus,
@@ -45,22 +39,19 @@ function App() {
     globalFilter,
     handleClearData,
     handleCancelAudit,
-    handleCancelAutoCrop,
+    handleCloseAutoFixDialog,
     handleCloseMigrationDialog,
     handleCloseMigrationResult,
-    handleCloseAutoCropDialog,
     handleCloseFolderBrowserDialog,
     handleCloseGenerateThumbnailsDialog,
-    handleClosePremiereExportDialog,
     handleCloseThumbnailResult,
     handleExecuteMigration,
     handleFolderPathSelect,
     handleMigrationNewEditedDirChange,
     handleNewEditedFolderSelect,
-    handleOpenAutoCropDialog,
+    handleOpenAutoFixDialog,
     handleOpenFolderPathTest,
     handleOpenMigrationDialog,
-    handleOpenPremiereExportDialog,
     handleOpenGenerateThumbnails,
     handleOpenSelectedFilesAudit,
     handleRefreshData,
@@ -68,29 +59,21 @@ function App() {
     handleRestoreRemovedVideos,
     handleSelectNewEditedFolderClick,
     handleStartMigrationScan,
-    handleSubmitAutoCrop,
-    handleSubmitAutoCropVideo,
     handleStartThumbnailGeneration,
-    handleSubmitPremiereExportDialogImport,
-    handleSubmitPremiereImport,
-    handleSubmitPremiereImportVideo,
-    handleSubmitPremiereExport,
-    handleQueuePremiereExportVideo,
+    handleSubmitSelectedPremiereImport,
+    handleStartAutoFix,
     handleSelectedFilesSelect,
     handleScanSelectedFolders,
     includeLowResolutionAnalysis,
     includeBlackBorderAnalysis,
     includeSubfolders,
     isAuditActive,
-    isAutoCropDialogVisible,
-    isAutoCropSubmitting,
+    isAutoFixDialogVisible,
+    isAutoFixSubmitting,
     isFolderBrowserDialogVisible,
-    isPremiereImportSubmitting,
     isMigrationExecuting,
     isMigrationScanDialogVisible,
     isMigrationScanning,
-    isPremiereExportDialogVisible,
-    isPremiereExportSubmitting,
     isGeneratingThumbnails,
     isThumbnailDialogVisible,
     isPremiereStatusLoading,
@@ -105,18 +88,13 @@ function App() {
     migrationScan,
     migrationScanError,
     newEditedFolderInputRef,
-    premiereExportError,
-    premiereExportSelectedCount,
-    premierePresets,
     premiereStatus,
-    selectedPremierePresetId,
-    selectedAutoCropVideos,
     selectedVideos,
     selectedFilesInputRef,
     setIncludeLowResolutionAnalysis,
     setIncludeBlackBorderAnalysis,
     setIncludeSubfolders,
-    setSelectedPremierePresetId,
+    setAutoFixDestinationRoot,
     setSelectedVideos,
     setGlobalFilter,
     setShowThumbnails,
@@ -199,12 +177,9 @@ function App() {
       ) : (
         hasTableSurface && (
           <VideoTable
-            canAutoCropSelected={canAutoCropSelected}
-            canExportToPremiere={canExportToPremiere}
+            canAutoFixSelected={canAutoFixSelected}
+            canEditSelectedInPremiere={canEditSelectedInPremiere}
             canGenerateThumbnails={canGenerateThumbnails}
-            canImportVideoToPremiere={canImportVideoToPremiere}
-            canOpenCropOptionsForVideo={canOpenCropOptionsForVideo}
-            canQueuePremiereExportVideo={canQueuePremiereExportVideo}
             canStartMigration={canStartMigration}
             canRefresh={canRefresh}
             fileName={fileName}
@@ -214,12 +189,9 @@ function App() {
             isGeneratingThumbnails={isGeneratingThumbnails}
             isPersisted={isPersisted}
             onClearData={handleClearData}
-            onAutoCropSelectedClick={handleOpenAutoCropDialog}
-            onAutoCropVideoClick={handleSubmitAutoCropVideo}
-            onExportToPremiereClick={handleOpenPremiereExportDialog}
-            onExportVideoToPremiereClick={handleQueuePremiereExportVideo}
+            onAutoFixSelectedClick={handleOpenAutoFixDialog}
+            onEditInPremiereClick={handleSubmitSelectedPremiereImport}
             onGenerateThumbnailsClick={handleOpenGenerateThumbnails}
-            onImportVideoToPremiereClick={handleSubmitPremiereImportVideo}
             onMigrateNewEditsClick={handleOpenMigrationDialog}
             onGlobalFilterChange={setGlobalFilter}
             onRemoveVideosClick={handleRemoveVideosFromTable}
@@ -243,21 +215,18 @@ function App() {
         style={{ display: 'none' }}
       />
 
-      <AutoCropDialog
-        autoCropPercent={autoCropPercent}
-        error={autoCropError}
-        initialMode={autoCropDialogInitialMode}
-        isSubmitting={isAutoCropSubmitting}
-        isPremiereImportSubmitting={isPremiereImportSubmitting}
-        canImportToPremiere={canImportSelectedToPremiere}
-        onHide={handleCloseAutoCropDialog}
-        onCancel={handleCancelAutoCrop}
-        onImportToPremiere={handleSubmitPremiereImport}
-        onSubmit={handleSubmitAutoCrop}
-        progress={autoCropProgress}
-        result={autoCropResult}
-        selectedVideos={selectedAutoCropVideos}
-        visible={isAutoCropDialogVisible}
+      <AutoFixDialog
+        autoFixPercent={autoFixPercent}
+        destinationRoot={autoFixDestinationRoot}
+        error={autoFixError}
+        isSubmitting={isAutoFixSubmitting}
+        onDestinationRootChange={setAutoFixDestinationRoot}
+        onHide={handleCloseAutoFixDialog}
+        onSubmit={handleStartAutoFix}
+        progress={autoFixProgress}
+        result={autoFixResult}
+        selectedCount={selectedVideos.length}
+        visible={isAutoFixDialogVisible}
       />
 
       <FolderBrowserDialog
@@ -265,21 +234,6 @@ function App() {
         onHide={handleCloseFolderBrowserDialog}
         onScanSelectedFolders={handleScanSelectedFolders}
         visible={isFolderBrowserDialogVisible}
-      />
-
-      <PremiereExportDialog
-        canImportToPremiere={canImportPremiereExportDialogVideos}
-        error={premiereExportError}
-        isImportSubmitting={isPremiereImportSubmitting}
-        isSubmitting={isPremiereExportSubmitting}
-        onHide={handleClosePremiereExportDialog}
-        onImportToPremiere={handleSubmitPremiereExportDialogImport}
-        onPresetChange={setSelectedPremierePresetId}
-        onSubmit={handleSubmitPremiereExport}
-        presets={premierePresets}
-        selectedCount={premiereExportSelectedCount}
-        selectedPresetId={selectedPremierePresetId}
-        visible={isPremiereExportDialogVisible}
       />
 
       <ThumbnailGenerationDialog

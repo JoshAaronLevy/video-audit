@@ -1,13 +1,13 @@
 # Video Audit
 
-Video Audit is a local Vite + React app with a coupled Express backend for scanning video folders and queueing selected audit results into Premiere Pro.
+Video Audit is a local Vite + React app with a coupled Express backend for scanning video folders, importing selected videos into Premiere Pro for manual editing, and running local FFmpeg-based video fixes.
 
 ## Requirements
 
 - Node.js and npm.
 - Premiere Pro with UXP support, targeting Premiere Pro 26.0 or newer for the bridge plugin.
 - UXP Developer Tool for loading the local plugin during development.
-- Adobe Media Encoder for queued export jobs.
+- FFmpeg and FFprobe on the local PATH for audits, thumbnails, and Auto-Fix.
 
 ## Run The App
 
@@ -49,9 +49,10 @@ The Premiere workflow uses a simple filesystem bridge:
   completed/
   failed/
   presets/
+  imports/
 ```
 
-The backend creates these folders when `/api/premiere/status` or `/api/premiere/export-requests` runs. It does not call Premiere APIs directly. It only checks local readiness, validates selected videos and presets, and writes request JSON into `requests/`.
+The backend creates these folders when `/api/premiere/status`, `/api/premiere/import-requests`, or the deprecated compatibility route `/api/premiere/export-requests` runs. It does not call Premiere APIs directly. It checks local readiness, validates selected videos, and writes import-only request JSON into `requests/`.
 
 Optional backend env vars:
 
@@ -60,15 +61,7 @@ PREMIERE_BRIDGE_DIR=/absolute/or/~/path
 PREMIERE_BRIDGE_HEARTBEAT_MAX_MS=30000
 ```
 
-## Export Presets
-
-Use real Adobe `.epr` export presets. For the MVP, place this file at:
-
-```txt
-~/VideoAudit/premiere-bridge/presets/h264-1080p-12mbps.epr
-```
-
-The UI shows the friendly preset label, but sends only the stable preset ID to the backend. The backend maps that ID to the `.epr` filename and rejects export requests when the file is missing or unreadable.
+`Edit in Premiere` means selected videos are imported into the currently open Premiere project for manual editing only. The active backend workflow no longer applies Premiere export presets, creates export sequences, or queues Adobe Media Encoder jobs. The old `/api/premiere/export-requests` endpoint is kept as a compatibility shim, but it now writes the same `import-selected-videos` bridge request as `/api/premiere/import-requests`.
 
 ## Black-Border Analysis And Auto-Crop
 
@@ -80,7 +73,36 @@ Auto-crop is a separate backend workflow from the Premiere bridge. It uses FFmpe
 ~/Movies/Edited/AutoCropped/
 ```
 
-Output filenames match the selected source filenames. The backend writes `manifest.in-progress.json` during the run and renames it to `manifest.json` when complete. Source files are never modified, overwritten, deleted, or cropped in place. Cropped outputs can later be scanned or selected for the Premiere export workflow if needed.
+Output filenames match the selected source filenames. The backend writes `manifest.in-progress.json` during the run and renames it to `manifest.json` when complete. Source files are never modified, overwritten, deleted, or cropped in place. Cropped outputs can later be scanned or imported into Premiere for manual editing if needed.
+
+## Auto-Fix / FFmpeg Normalize
+
+Auto-Fix uses FFmpeg, not Premiere. Start a job with `POST /api/auto-fix`, follow progress at `GET /api/auto-fix/:jobId/events`, and read results at `GET /api/auto-fix/:jobId/result`.
+
+Every Auto-Fix output is normalized to true `1920x1080`, square pixels, and `16:9` display aspect ratio without stretching. The filter preserves the source image shape and pads with black bars when needed:
+
+```txt
+scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,setdar=16/9
+```
+
+When existing black-border metadata marks a video as a safe, high-confidence nested-border `crop-scale` candidate, Auto-Fix crops first and then normalizes. Normal pillarbox-only or letterbox-only videos are normalized without cropping.
+
+Profiles are selected independently per video:
+
+- High quality normalize: `libx264`, `medium`, CRF `18`, AAC `192k`, `yuv420p`.
+- Standard normalize: `libx264`, `fast`, CRF `20`, AAC `192k`, `yuv420p`.
+
+The backend chooses the standard profile for clearly low-resolution or very low-bitrate sources and uses high quality otherwise, so mixed selections can run in one job.
+
+Outputs are written directly to:
+
+```txt
+<destinationRoot>/ffmpeg/
+```
+
+If `destinationRoot` is omitted, it defaults to `/Users/joshlevy/Movies/Edited`, so the default output directory is `/Users/joshlevy/Movies/Edited/ffmpeg`. Auto-Fix does not create manifests, per-run folders, or per-video subfolders. Existing files in the `ffmpeg` folder are overwritten intentionally. Source videos are never modified.
+
+MP4 source filenames are preserved exactly. Non-MP4 supported inputs keep the same base name but are written as `.mp4` for H.264/AAC container compatibility.
 
 ## Thumbnail Generation
 
@@ -127,8 +149,7 @@ New source files are never deleted or moved. Old destination files are archived,
 3. Add the local `premiere-uxp/` folder as a plugin.
 4. Load or Load & Watch the plugin.
 5. In the plugin panel, select `~/VideoAudit/premiere-bridge/` as the bridge folder.
-6. Select `/Users/joshlevy/Movies/Edited` as the output folder.
-7. Keep the panel open while queueing requests from the Vite app.
+6. Keep the panel open while importing selected videos from the Vite app.
 
 When connected, the plugin writes `status.json` heartbeat updates. The Vite app checks `/api/premiere/status` on load and with the Retry button.
 
@@ -136,7 +157,6 @@ When connected, the plugin writes `status.json` heartbeat updates. The Vite app 
 
 - The browser never checks local processes or files directly; those checks stay in the backend.
 - The backend does not call Premiere APIs.
-- The plugin queues jobs in Adobe Media Encoder but does not start the queue automatically.
-- The workflow creates one imported item, one Premiere sequence, and one AME queue item per selected video.
+- The Premiere workflow imports selected files only; automatic fixes are handled by FFmpeg Auto-Fix.
 - The MVP does not do intelligent reframing, subject tracking, scene analysis, background job dashboards, WebSockets, accounts, or cloud processing.
 - Do not parse or edit `.prproj` files directly.

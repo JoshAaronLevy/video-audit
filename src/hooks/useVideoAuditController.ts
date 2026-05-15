@@ -6,10 +6,12 @@ import {
   clearStoredVideoData,
   getAuditPercent,
   getAutoCropPercent,
+  getAutoFixPercent,
   getMigrationPercent,
   getThumbnailPercent,
   initialAuditProgress,
   initialAutoCropProgress,
+  initialAutoFixProgress,
   initialMigrationProgress,
   initialThumbnailProgress,
   isAutoCropCandidate,
@@ -18,6 +20,7 @@ import {
   loadStoredVideoData,
   mergeAuditProgress,
   mergeAutoCropProgress,
+  mergeAutoFixProgress,
   mergeMigrationProgress,
   mergeThumbnailProgress,
   saveVideoData,
@@ -35,6 +38,10 @@ import type {
   AutoCropProgressPayload,
   AutoCropResultResponse,
   AutoCropStartResponse,
+  AutoFixProgress,
+  AutoFixProgressPayload,
+  AutoFixResultResponse,
+  AutoFixStartResponse,
   FolderPathTestSummary,
   SelectedFileManifestItem,
   ThumbnailProgress,
@@ -46,11 +53,9 @@ import type {
   VideoRow,
 } from '../types/video'
 import type {
-  PremiereExportRequestPayload,
   PremiereExportRequestResponse,
   PremiereExportVideo,
   PremiereImportRequestPayload,
-  PremierePreset,
   PremiereStatusResponse,
 } from '../types/premiere'
 import type {
@@ -74,16 +79,7 @@ const toPremiereExportVideo = (row: VideoRow): PremiereExportVideo => ({
   frameRate: row.frameRate,
 })
 
-const isPremierePresetAvailable = (preset: PremierePreset) =>
-  preset.available !== false
-
-const getFirstAvailablePremierePresetId = (presets: PremierePreset[]) =>
-  presets.find(isPremierePresetAvailable)?.id ?? null
-
-const markRowsQueued = (rows: VideoRow[], queuedVideoPaths: Set<string>) =>
-  rows.map((row) =>
-    queuedVideoPaths.has(row.path) ? { ...row, status: 'Queued' as const } : row,
-  )
+const DEFAULT_AUTO_FIX_DESTINATION_ROOT = '/Users/joshlevy/Movies/Edited'
 
 const getThumbnailItemKey = (item: ThumbnailResultItem) =>
   item.path || item.absolutePath || item.id || null
@@ -180,6 +176,7 @@ export function useVideoAuditController() {
   const newEditedFolderInputRef = useRef<HTMLInputElement | null>(null)
   const auditEventSourceRef = useRef<EventSource | null>(null)
   const autoCropEventSourceRef = useRef<EventSource | null>(null)
+  const autoFixEventSourceRef = useRef<EventSource | null>(null)
   const migrationEventSourceRef = useRef<EventSource | null>(null)
   const thumbnailEventSourceRef = useRef<EventSource | null>(null)
   const toast = useRef<Toast>(null)
@@ -208,7 +205,6 @@ export function useVideoAuditController() {
   const [premiereStatus, setPremiereStatus] =
     useState<PremiereStatusResponse | null>(null)
   const [isPremiereStatusLoading, setIsPremiereStatusLoading] = useState(false)
-  const [premierePresets, setPremierePresets] = useState<PremierePreset[]>([])
   const [selectedVideos, setSelectedVideos] = useState<VideoRow[]>([])
   const selectedCropReviewVideos = useMemo(
     () => selectedVideos.filter(isCropReviewCandidate),
@@ -218,22 +214,16 @@ export function useVideoAuditController() {
     () => selectedVideos.filter(isAutoCropCandidate),
     [selectedVideos],
   )
-  const [isPremiereExportDialogVisible, setIsPremiereExportDialogVisible] =
-    useState(false)
-  const [selectedPremierePresetId, setSelectedPremierePresetId] = useState<
-    string | null
-  >(null)
-  const [premiereExportDialogVideos, setPremiereExportDialogVideos] = useState<
-    VideoRow[]
-  >([])
-  const [premiereExportDialogSource, setPremiereExportDialogSource] = useState<
-    'bulk' | 'row'
-  >('bulk')
-  const [premiereExportError, setPremiereExportError] = useState<string | null>(
-    null,
+  const [isAutoFixDialogVisible, setIsAutoFixDialogVisible] = useState(false)
+  const [isAutoFixSubmitting, setIsAutoFixSubmitting] = useState(false)
+  const [autoFixDestinationRoot, setAutoFixDestinationRoot] = useState(
+    DEFAULT_AUTO_FIX_DESTINATION_ROOT,
   )
-  const [isPremiereExportSubmitting, setIsPremiereExportSubmitting] =
-    useState(false)
+  const [autoFixProgress, setAutoFixProgress] =
+    useState<AutoFixProgress>(initialAutoFixProgress)
+  const [autoFixResult, setAutoFixResult] =
+    useState<AutoFixResultResponse | null>(null)
+  const [autoFixError, setAutoFixError] = useState<string | null>(null)
   const [isAutoCropDialogVisible, setIsAutoCropDialogVisible] = useState(false)
   const [autoCropDialogVideos, setAutoCropDialogVideos] = useState<
     VideoRow[] | null
@@ -324,6 +314,11 @@ export function useVideoAuditController() {
     autoCropEventSourceRef.current = null
   }
 
+  const closeAutoFixEventSource = () => {
+    autoFixEventSourceRef.current?.close()
+    autoFixEventSourceRef.current = null
+  }
+
   const closeMigrationEventSource = () => {
     migrationEventSourceRef.current?.close()
     migrationEventSourceRef.current = null
@@ -349,21 +344,6 @@ export function useVideoAuditController() {
       const payload = (await response.json()) as PremiereStatusResponse
 
       setPremiereStatus(payload)
-      const nextPresets = Array.isArray(payload.presets) ? payload.presets : []
-      setPremierePresets(nextPresets)
-      setSelectedPremierePresetId((currentPresetId) => {
-        if (
-          currentPresetId &&
-          nextPresets.some(
-            (preset) =>
-              preset.id === currentPresetId && isPremierePresetAvailable(preset),
-          )
-        ) {
-          return currentPresetId
-        }
-
-        return getFirstAvailablePremierePresetId(nextPresets)
-      })
     } catch (caughtError) {
       const message =
         caughtError instanceof Error
@@ -377,8 +357,6 @@ export function useVideoAuditController() {
         message,
         bridge: { connected: false },
       })
-      setPremierePresets([])
-      setSelectedPremierePresetId(null)
       toast.current?.show({
         severity: 'error',
         summary: 'Premiere status failed',
@@ -394,6 +372,7 @@ export function useVideoAuditController() {
     return () => {
       closeAuditEventSource()
       closeAutoCropEventSource()
+      closeAutoFixEventSource()
       closeMigrationEventSource()
       closeThumbnailEventSource()
     }
@@ -424,6 +403,15 @@ export function useVideoAuditController() {
   ) => {
     setAutoCropProgress((currentProgress) =>
       mergeAutoCropProgress(currentProgress, payload, status),
+    )
+  }
+
+  const updateAutoFixProgress = (
+    payload: AutoFixProgressPayload,
+    status: AutoFixProgress['status'] = 'running',
+  ) => {
+    setAutoFixProgress((currentProgress) =>
+      mergeAutoFixProgress(currentProgress, payload, status),
     )
   }
 
@@ -976,6 +964,7 @@ export function useVideoAuditController() {
   const handleClearData = async () => {
     closeAuditEventSource()
     closeAutoCropEventSource()
+    closeAutoFixEventSource()
     closeMigrationEventSource()
     closeThumbnailEventSource()
     await clearStoredVideoData()
@@ -995,6 +984,12 @@ export function useVideoAuditController() {
     setAutoCropError(null)
     setIsAutoCropDialogVisible(false)
     setIsAutoCropSubmitting(false)
+    setIsAutoFixDialogVisible(false)
+    setIsAutoFixSubmitting(false)
+    setAutoFixDestinationRoot(DEFAULT_AUTO_FIX_DESTINATION_ROOT)
+    setAutoFixProgress(initialAutoFixProgress)
+    setAutoFixResult(null)
+    setAutoFixError(null)
     setIsFolderBrowserDialogVisible(false)
     setIsMigrationScanDialogVisible(false)
     setIsMigrationScanning(false)
@@ -1496,175 +1491,224 @@ export function useVideoAuditController() {
     await handleStartMigrationScan(selectedFolderPath)
   }
 
-  const openPremiereExportDialog = (
-    videos: VideoRow[],
-    source: 'bulk' | 'row',
-  ) => {
-    if (
-      videos.length === 0 ||
-      premiereStatus?.status !== 'ready' ||
-      isAuditActive ||
-      isTableLoading
-    ) {
+  const handleOpenAutoFixDialog = () => {
+    if (selectedVideos.length === 0) {
+      const message = 'Select one or more videos first.'
+
+      setAutoFixError(message)
+      toast.current?.show({
+        severity: 'warn',
+        summary: 'No videos selected',
+        detail: message,
+        life: 3600,
+      })
       return
     }
 
-    setPremiereExportError(null)
-    setSelectedPremierePresetId((currentPresetId) => {
-      if (
-        currentPresetId &&
-        premierePresets.some(
-          (preset) =>
-            preset.id === currentPresetId && isPremierePresetAvailable(preset),
-        )
-      ) {
-        return currentPresetId
-      }
-
-      return getFirstAvailablePremierePresetId(premierePresets)
-    })
-    setPremiereExportDialogVideos(videos)
-    setPremiereExportDialogSource(source)
-    setIsPremiereExportDialogVisible(true)
-  }
-
-  const handleOpenPremiereExportDialog = () => {
-    openPremiereExportDialog(selectedVideos, 'bulk')
-  }
-
-  const handleClosePremiereExportDialog = () => {
-    if (isPremiereExportSubmitting || isPremiereImportSubmitting) {
+    if (isAuditActive || isTableLoading || isStorageLoading) {
       return
     }
 
-    setIsPremiereExportDialogVisible(false)
-    setPremiereExportDialogVideos([])
-    setPremiereExportDialogSource('bulk')
-    setPremiereExportError(null)
-  }
-
-  const queuePremiereExport = async (
-    videos: VideoRow[],
-    presetId: string | null,
-    source: 'bulk' | 'row',
-  ) => {
-    const setExportError = (message: string) => {
-      setPremiereExportError(message)
-    }
-
-    if (!presetId) {
-      setExportError('Choose an export preset.')
-      return
-    }
-
-    const selectedPreset = premierePresets.find(
-      (preset) => preset.id === presetId,
+    closeAutoFixEventSource()
+    setAutoFixError(null)
+    setAutoFixResult(null)
+    setAutoFixProgress(initialAutoFixProgress)
+    setAutoFixDestinationRoot(
+      premiereStatus?.outputDirectory || DEFAULT_AUTO_FIX_DESTINATION_ROOT,
     )
+    setIsAutoFixSubmitting(false)
+    setIsAutoFixDialogVisible(true)
+  }
 
-    if (!selectedPreset || !isPremierePresetAvailable(selectedPreset)) {
-      setExportError(
-        selectedPreset?.unavailableMessage ||
-          'The selected export preset file is missing.',
-      )
+  const handleCloseAutoFixDialog = () => {
+    if (isAutoFixSubmitting) {
       return
     }
 
-    if (videos.length === 0) {
-      setExportError('Select at least one video to export.')
+    closeAutoFixEventSource()
+    setIsAutoFixDialogVisible(false)
+    setAutoFixError(null)
+    setAutoFixResult(null)
+    setAutoFixProgress(initialAutoFixProgress)
+  }
+
+  const fetchAutoFixResult = async (jobId: string) => {
+    const response = await fetch(`${apiBaseUrl}/api/auto-fix/${jobId}/result`)
+
+    if (!response.ok) {
+      throw new Error('Unable to fetch completed Auto-Fix results.')
+    }
+
+    const result = (await response.json()) as AutoFixResultResponse
+
+    if (result.status !== 'complete' || !Array.isArray(result.items)) {
+      throw new Error('The Auto-Fix result was not complete.')
+    }
+
+    setAutoFixResult(result)
+    setAutoFixProgress((currentProgress) => ({
+      ...currentProgress,
+      status: 'complete',
+      phase: 'complete',
+      outputDirectory: result.outputDirectory,
+      totalVideos: result.summary.requested,
+      processedVideos: result.summary.requested,
+      succeeded: result.summary.succeeded,
+      failed: result.summary.failed,
+      currentFile: null,
+      currentProfile: null,
+      currentAction: null,
+      message: 'Auto-Fix complete.',
+    }))
+    toast.current?.show({
+      severity: result.summary.failed > 0 ? 'warn' : 'success',
+      summary: 'Auto-Fix complete',
+      detail: `${result.summary.succeeded.toLocaleString()} videos fixed, ${result.summary.failed.toLocaleString()} failed.`,
+      life: 5200,
+    })
+  }
+
+  const handleStartAutoFix = async () => {
+    const destinationRoot = autoFixDestinationRoot.trim()
+
+    if (selectedVideos.length === 0) {
+      setAutoFixError('Select one or more videos first.')
       return
     }
 
-    const requestPayload: PremiereExportRequestPayload = {
-      presetId,
-      videos: videos.map(toPremiereExportVideo),
+    if (!destinationRoot) {
+      setAutoFixError('Enter a destination root.')
+      return
     }
 
-    setIsPremiereExportSubmitting(true)
-    if (source === 'bulk') {
-      setPremiereExportError(null)
-    }
+    closeAutoFixEventSource()
+    setIsAutoFixSubmitting(true)
+    setAutoFixError(null)
+    setAutoFixResult(null)
+    setAutoFixProgress({
+      ...initialAutoFixProgress,
+      status: 'starting',
+      phase: 'starting',
+      totalVideos: selectedVideos.length,
+      message: 'Starting Auto-Fix...',
+    })
 
     try {
-      const response = await fetch(`${apiBaseUrl}/api/premiere/export-requests`, {
+      const response = await fetch(`${apiBaseUrl}/api/auto-fix`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestPayload),
+        body: JSON.stringify({
+          videos: selectedVideos,
+          destinationRoot,
+        }),
       })
-      const payload = (await response.json()) as PremiereExportRequestResponse
+      const payload = (await response.json()) as AutoFixStartResponse
 
-      if (payload.status === 'bridge_not_ready' && payload.premiereStatus) {
-        setPremiereStatus(payload.premiereStatus)
-        setPremierePresets(
-          Array.isArray(payload.premiereStatus.presets)
-            ? payload.premiereStatus.presets
-            : [],
-        )
+      if (!response.ok || payload.status !== 'started' || !payload.jobId) {
+        throw new Error(payload.message || 'Unable to start Auto-Fix.')
       }
 
-      if (!response.ok || payload.status !== 'queued' || !payload.requestId) {
-        throw new Error(
-          payload.message || 'Unable to queue export request for Premiere.',
-        )
-      }
+      const jobId = payload.jobId
 
-      const queuedVideoPaths = new Set(
-        requestPayload.videos.map((video) => video.absolutePath),
+      setAutoFixProgress({
+        ...initialAutoFixProgress,
+        jobId,
+        status: 'running',
+        phase: 'normalizing',
+        totalVideos: payload.totalVideos ?? selectedVideos.length,
+        outputDirectory: payload.outputDirectory ?? null,
+        message: 'Auto-fixing videos...',
+      })
+
+      const eventSource = new EventSource(
+        `${apiBaseUrl}/api/auto-fix/${jobId}/events`,
       )
-      if (videoRows) {
-        const nextRows = markRowsQueued(videoRows, queuedVideoPaths)
-        const persisted = await saveVideoData({
-          fileName,
-          payload: storedPayload,
-          rows: nextRows,
-        })
+      autoFixEventSourceRef.current = eventSource
 
-        setVideoRows(nextRows)
-        setIsPersisted(persisted)
-      }
-      if (source === 'bulk') {
-        setSelectedVideos([])
-      }
-      setIsPremiereExportDialogVisible(false)
-      setPremiereExportDialogVideos([])
-      setPremiereExportDialogSource('bulk')
-      setPremiereExportError(null)
-      toast.current?.show({
-        severity: 'success',
-        summary: 'Export queued',
-        detail:
-          videos.length === 1
-            ? `${videos[0].fileName} was added to the Media Encoder queue.`
-            : `Videos successfully added to the Media Encoder queue. Ready to export.`,
-        life: 3000,
+      eventSource.addEventListener('progress', (event) => {
+        const progressPayload = JSON.parse(
+          (event as MessageEvent<string>).data,
+        ) as AutoFixProgressPayload
+        updateAutoFixProgress(progressPayload, 'running')
+      })
+
+      eventSource.addEventListener('complete', (event) => {
+        const completePayload = JSON.parse(
+          (event as MessageEvent<string>).data,
+        ) as AutoFixProgressPayload
+        closeAutoFixEventSource()
+        updateAutoFixProgress(completePayload, 'complete')
+
+        void fetchAutoFixResult(jobId)
+          .catch((caughtError) => {
+            const message =
+              caughtError instanceof Error
+                ? caughtError.message
+                : 'Unable to load completed Auto-Fix results.'
+
+            setAutoFixError(message)
+            setAutoFixProgress((currentProgress) => ({
+              ...currentProgress,
+              status: 'error',
+              message,
+            }))
+            toast.current?.show({
+              severity: 'error',
+              summary: 'Auto-Fix result failed',
+              detail: message,
+              life: 5200,
+            })
+          })
+          .finally(() => {
+            setIsAutoFixSubmitting(false)
+          })
+      })
+
+      eventSource.addEventListener('error', (event) => {
+        const maybeMessageEvent = event as MessageEvent<string>
+        const hasServerPayload =
+          typeof maybeMessageEvent.data === 'string' &&
+          maybeMessageEvent.data.length > 0
+
+        const errorPayload = hasServerPayload
+          ? (JSON.parse(maybeMessageEvent.data) as AutoFixProgressPayload)
+          : null
+        const message =
+          errorPayload?.message ||
+          'Lost connection to the backend Auto-Fix progress stream.'
+
+        closeAutoFixEventSource()
+        setIsAutoFixSubmitting(false)
+        setAutoFixError(message)
+        updateAutoFixProgress(errorPayload ?? { message }, 'error')
+        toast.current?.show({
+          severity: 'error',
+          summary: 'Auto-Fix failed',
+          detail: message,
+          life: 5200,
+        })
       })
     } catch (caughtError) {
+      closeAutoFixEventSource()
       const message =
         caughtError instanceof Error
           ? caughtError.message
-          : 'Unable to queue export request for Premiere.'
+          : 'Unable to start Auto-Fix.'
 
-      setExportError(message)
+      setAutoFixError(message)
+      setIsAutoFixSubmitting(false)
+      setAutoFixProgress((currentProgress) => ({
+        ...currentProgress,
+        status: 'error',
+        message,
+      }))
       toast.current?.show({
         severity: 'error',
-        summary: 'Export failed',
+        summary: 'Auto-Fix failed',
         detail: message,
         life: 5200,
       })
-    } finally {
-      setIsPremiereExportSubmitting(false)
     }
-  }
-
-  const handleSubmitPremiereExport = async () => {
-    await queuePremiereExport(
-      premiereExportDialogVideos,
-      selectedPremierePresetId,
-      premiereExportDialogSource,
-    )
-  }
-
-  const handleQueuePremiereExportVideo = async (video: VideoRow) => {
-    openPremiereExportDialog([video], 'row')
   }
 
   const handleOpenAutoCropDialog = () => {
@@ -1949,10 +1993,10 @@ export function useVideoAuditController() {
 
   const submitPremiereImportVideos = async (
     videos: VideoRow[],
-    source: 'crop' | 'export',
+    source: 'crop' | 'selected',
   ) => {
     const setImportError =
-      source === 'export' ? setPremiereExportError : setAutoCropError
+      source === 'crop' ? setAutoCropError : setError
 
     if (videos.length === 0) {
       setImportError('Select at least one video to import into Premiere.')
@@ -1981,11 +2025,6 @@ export function useVideoAuditController() {
 
       if (payload.status === 'bridge_not_ready' && payload.premiereStatus) {
         setPremiereStatus(payload.premiereStatus)
-        setPremierePresets(
-          Array.isArray(payload.premiereStatus.presets)
-            ? payload.premiereStatus.presets
-            : [],
-        )
       }
 
       if (!response.ok || payload.status !== 'queued' || !payload.requestId) {
@@ -2002,21 +2041,15 @@ export function useVideoAuditController() {
         setAutoCropResult(null)
         setAutoCropProgress(initialAutoCropProgress)
       } else {
-        if (premiereExportDialogSource === 'bulk') {
-          setSelectedVideos([])
-        }
-        setIsPremiereExportDialogVisible(false)
-        setPremiereExportDialogVideos([])
-        setPremiereExportDialogSource('bulk')
-        setPremiereExportError(null)
+        setSelectedVideos([])
       }
       toast.current?.show({
         severity: 'success',
         summary: 'Import requested',
         detail:
           videos.length === 1
-            ? `${videos[0].fileName} will be imported into the open Premiere project without queueing exports.`
-            : 'Selected videos will be imported into the open Premiere project without queueing exports.',
+            ? `${videos[0].fileName} will be imported into the open Premiere project for manual editing.`
+            : 'Selected videos will be imported into the open Premiere project for manual editing.',
         life: 4200,
       })
     } catch (caughtError) {
@@ -2041,8 +2074,8 @@ export function useVideoAuditController() {
     await submitPremiereImportVideos(selectedCropReviewVideos, 'crop')
   }
 
-  const handleSubmitPremiereExportDialogImport = async () => {
-    await submitPremiereImportVideos(premiereExportDialogVideos, 'export')
+  const handleSubmitSelectedPremiereImport = async () => {
+    await submitPremiereImportVideos(selectedVideos, 'selected')
   }
 
   const handleSubmitPremiereImportVideo = async (video: VideoRow) => {
@@ -2237,6 +2270,7 @@ export function useVideoAuditController() {
 
   const auditPercent = getAuditPercent(auditProgress)
   const autoCropPercent = getAutoCropPercent(autoCropProgress)
+  const autoFixPercent = getAutoFixPercent(autoFixProgress)
   const migrationPercent = getMigrationPercent(migrationProgress)
   const thumbnailPercent = getThumbnailPercent(thumbnailProgress)
   const isAuditVisible = auditProgress.status !== 'idle'
@@ -2249,19 +2283,19 @@ export function useVideoAuditController() {
     !isTableLoading &&
     !isStorageLoading &&
     !isGeneratingThumbnails
-  const canExportToPremiere =
+  const canEditSelectedInPremiere =
     selectedVideos.length > 0 &&
     premiereStatus?.status === 'ready' &&
     !isAuditActive &&
     !isTableLoading &&
-    !isStorageLoading
-  const canQueuePremiereExportVideo = (video: VideoRow) =>
-    video.isLowResolution &&
-    premiereStatus?.status === 'ready' &&
+    !isStorageLoading &&
+    !isPremiereImportSubmitting
+  const canAutoFixSelected =
+    selectedVideos.length > 0 &&
     !isAuditActive &&
     !isTableLoading &&
     !isStorageLoading &&
-    !isPremiereExportSubmitting
+    !isAutoFixSubmitting
   const canAutoCropSelected =
     selectedCropReviewVideos.length > 0 &&
     !isAuditActive &&
@@ -2290,13 +2324,6 @@ export function useVideoAuditController() {
     !isTableLoading &&
     !isStorageLoading &&
     !isPremiereImportSubmitting
-  const canImportPremiereExportDialogVideos =
-    premiereExportDialogVideos.length > 0 &&
-    premiereStatus?.status === 'ready' &&
-    !isAuditActive &&
-    !isTableLoading &&
-    !isStorageLoading &&
-    !isPremiereImportSubmitting
   const canStartMigration =
     Boolean(auditedRootDirectory) &&
     !isAuditActive &&
@@ -2311,6 +2338,11 @@ export function useVideoAuditController() {
     autoCropProgress,
     autoCropResult,
     autoCropDialogInitialMode,
+    autoFixDestinationRoot,
+    autoFixError,
+    autoFixPercent,
+    autoFixProgress,
+    autoFixResult,
     auditPercent,
     auditProgress,
     error,
@@ -2325,18 +2357,18 @@ export function useVideoAuditController() {
     handleCancelAudit,
     handleCancelAutoCrop,
     checkPremiereStatus,
+    handleCloseAutoFixDialog,
     handleCloseAutoCropDialog,
     handleCloseAutoCropResult,
     handleCloseFolderBrowserDialog,
-    handleClosePremiereExportDialog,
     handleFolderPathSelect,
     handleExecuteMigration,
     handleMigrationNewEditedDirChange,
     handleNewEditedFolderSelect,
     handleOpenAutoCropDialog,
+    handleOpenAutoFixDialog,
     handleOpenFolderPathTest,
     handleOpenMigrationDialog,
-    handleOpenPremiereExportDialog,
     handleOpenSelectedFilesAudit,
     handleRefreshData,
     handleRemoveVideosFromTable,
@@ -2346,10 +2378,9 @@ export function useVideoAuditController() {
     handleSubmitAutoCrop,
     handleSubmitAutoCropVideo,
     handleSubmitPremiereImport,
-    handleSubmitPremiereExportDialogImport,
+    handleSubmitSelectedPremiereImport,
     handleSubmitPremiereImportVideo,
-    handleSubmitPremiereExport,
-    handleQueuePremiereExportVideo,
+    handleStartAutoFix,
     handleSelectedFilesSelect,
     handleScanSelectedFolders,
     includeLowResolutionAnalysis,
@@ -2359,13 +2390,13 @@ export function useVideoAuditController() {
     isAuditVisible,
     isAutoCropDialogVisible,
     isAutoCropSubmitting,
+    isAutoFixDialogVisible,
+    isAutoFixSubmitting,
     isFolderBrowserDialogVisible,
     isPremiereImportSubmitting,
     isMigrationExecuting,
     isMigrationScanDialogVisible,
     isMigrationScanning,
-    isPremiereExportDialogVisible,
-    isPremiereExportSubmitting,
     isPersisted,
     isPremiereStatusLoading,
     isStorageLoading,
@@ -2378,29 +2409,24 @@ export function useVideoAuditController() {
     migrationScan,
     migrationScanError,
     newEditedFolderInputRef,
-    premiereExportError,
-    premiereExportSelectedCount: premiereExportDialogVideos.length,
-    premierePresets,
     premiereStatus,
-    selectedPremierePresetId,
     selectedAutoCropVideos: autoCropDialogVideos ?? selectedCropReviewVideos,
     selectedVideos,
     selectedFilesInputRef,
     canRefresh: Boolean(storedPayload) && !isStorageLoading,
     canAutoCropSelected,
     canImportSelectedToPremiere,
-    canImportPremiereExportDialogVideos,
     canImportVideoToPremiere,
     canOpenCropOptionsForVideo,
     canStartMigration,
-    canExportToPremiere,
-    canQueuePremiereExportVideo,
+    canEditSelectedInPremiere,
+    canAutoFixSelected,
     canGenerateThumbnails,
     handleCloseGenerateThumbnailsDialog,
     setIncludeLowResolutionAnalysis,
     setIncludeBlackBorderAnalysis,
     setIncludeSubfolders,
-    setSelectedPremierePresetId,
+    setAutoFixDestinationRoot,
     setSelectedVideos,
     setGlobalFilter,
     handleCloseThumbnailResult,

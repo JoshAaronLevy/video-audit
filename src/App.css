@@ -243,6 +243,10 @@
   width: min(640px, 94vw);
 }
 
+.auto-fix-dialog {
+  width: min(680px, 94vw);
+}
+
 .thumbnail-dialog {
   width: min(560px, 94vw);
 }
@@ -384,6 +388,7 @@
 }
 
 .auto-crop-dialog-content,
+.auto-fix-dialog-content,
 .thumbnail-dialog-content,
 .migration-dialog-content {
   display: flex;
@@ -392,6 +397,8 @@
 }
 
 .auto-crop-summary-grid,
+.auto-fix-summary-grid,
+.auto-fix-current-grid,
 .thumbnail-summary-grid,
 .migration-summary-grid,
 .migration-result-grid {
@@ -406,6 +413,8 @@
 }
 
 .auto-crop-summary-grid > div,
+.auto-fix-summary-grid > div,
+.auto-fix-current-grid > div,
 .thumbnail-summary-grid > div,
 .migration-summary-grid > div,
 .migration-result-grid > div {
@@ -419,8 +428,11 @@
 }
 
 .auto-crop-summary-grid span,
+.auto-fix-summary-grid span,
+.auto-fix-current-grid span,
 .thumbnail-summary-grid span,
 .auto-crop-paths span,
+.auto-fix-paths span,
 .migration-summary-grid span,
 .migration-result-grid span,
 .migration-paths span {
@@ -429,6 +441,8 @@
 }
 
 .auto-crop-summary-grid strong,
+.auto-fix-summary-grid strong,
+.auto-fix-current-grid strong,
 .thumbnail-summary-grid strong,
 .migration-summary-grid strong,
 .migration-result-grid strong {
@@ -484,6 +498,7 @@
 }
 
 .auto-crop-notes,
+.auto-fix-failed-items ul,
 .thumbnail-failed-items ul,
 .migration-notes,
 .auto-crop-skipped-summary ul,
@@ -496,6 +511,7 @@
 
 .auto-crop-skipped-summary h3,
 .auto-crop-failed-items h3,
+.auto-fix-failed-items h3,
 .thumbnail-failed-items h3,
 .migration-failed-items h3 {
   margin: 0 0 8px;
@@ -504,8 +520,10 @@
 }
 
 .auto-crop-progress,
+.auto-fix-progress,
 .thumbnail-progress,
 .auto-crop-paths,
+.auto-fix-paths,
 .migration-progress,
 .migration-paths {
   display: flex;
@@ -514,12 +532,14 @@
 }
 
 .auto-crop-progress p,
+.auto-fix-progress p,
 .thumbnail-progress p,
 .migration-progress p {
   margin: 0;
 }
 
 .auto-crop-progress-counts,
+.auto-fix-progress-counts,
 .thumbnail-progress-counts,
 .migration-progress-counts {
   display: flex;
@@ -530,6 +550,7 @@
 }
 
 .auto-crop-paths > div,
+.auto-fix-paths > div,
 .migration-paths > div,
 .migration-failed-item {
   display: flex;
@@ -538,10 +559,42 @@
 }
 
 .auto-crop-paths code,
+.auto-fix-paths code,
 .migration-paths code,
 .migration-review-table code {
   overflow-wrap: anywhere;
   white-space: normal;
+}
+
+.auto-fix-dialog-content p {
+  margin: 0;
+  color: #161C22;
+  line-height: 1.45;
+}
+
+.auto-fix-destination-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #161f25;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.auto-fix-destination-field .p-inputtext {
+  width: 100%;
+}
+
+.auto-fix-failed-items li,
+.auto-fix-current-grid span {
+  color: #161C22;
+}
+
+.auto-fix-current-grid strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .migration-folder-row {
@@ -573,6 +626,7 @@
 }
 
 .auto-crop-error,
+.auto-fix-error,
 .thumbnail-error,
 .migration-error {
   margin: 0;
@@ -593,6 +647,7 @@
 }
 
 .auto-crop-dialog-actions,
+.auto-fix-dialog-actions,
 .thumbnail-dialog-actions,
 .migration-dialog-actions {
   display: flex;
@@ -1170,6 +1225,7 @@
   .folder-browser-actions,
   .folder-browser-toolbar,
   .auto-crop-dialog-actions,
+  .auto-fix-dialog-actions,
   .thumbnail-dialog-actions,
   .migration-dialog-actions {
     align-items: stretch;
@@ -1180,6 +1236,7 @@
   .folder-browser-actions .p-button,
   .folder-browser-toolbar .p-button,
   .auto-crop-dialog-actions .p-button,
+  .auto-fix-dialog-actions .p-button,
   .thumbnail-dialog-actions .p-button,
   .migration-dialog-actions .p-button {
     width: 100%;

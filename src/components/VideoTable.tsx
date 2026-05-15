@@ -1,9 +1,7 @@
 import { useMemo, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import {
-  faArrowUpFromBracket,
   faCircleMinus,
-  faCrop,
   faEye,
 } from '@fortawesome/free-solid-svg-icons'
 import { Button } from 'primereact/button'
@@ -34,18 +32,13 @@ import {
   getRowDisplayFile,
   getRowDisplayFileName,
   globalFilterFields,
-  isAutoCropCandidate,
-  isCropReviewCandidate,
 } from '../helpers/utils'
 import type { CropReviewStatus } from '../helpers/utils'
 
 type VideoTableProps = {
-  canExportToPremiere: boolean
+  canAutoFixSelected: boolean
+  canEditSelectedInPremiere: boolean
   canGenerateThumbnails: boolean
-  canImportVideoToPremiere: (video: VideoRow) => boolean
-  canOpenCropOptionsForVideo: (video: VideoRow) => boolean
-  canQueuePremiereExportVideo: (video: VideoRow) => boolean
-  canAutoCropSelected: boolean
   canStartMigration: boolean
   canRefresh: boolean
   fileName: string | null
@@ -55,12 +48,9 @@ type VideoTableProps = {
   isPersisted: boolean
   isGeneratingThumbnails: boolean
   onClearData: () => void
-  onAutoCropSelectedClick: () => void
-  onAutoCropVideoClick: (video: VideoRow) => void
-  onExportToPremiereClick: () => void
-  onExportVideoToPremiereClick: (video: VideoRow) => void
+  onAutoFixSelectedClick: () => void
+  onEditInPremiereClick: () => void
   onGenerateThumbnailsClick: (tableRows: VideoRow[]) => void
-  onImportVideoToPremiereClick: (video: VideoRow) => void
   onMigrateNewEditsClick: () => void
   onGlobalFilterChange: (value: string) => void
   onRemoveVideosClick: (videos: VideoRow[]) => void
@@ -857,12 +847,9 @@ const renderVideoDetailRows = (value: unknown, path = 'video') => {
 }
 
 export function VideoTable({
-  canAutoCropSelected,
-  canExportToPremiere,
+  canAutoFixSelected,
+  canEditSelectedInPremiere,
   canGenerateThumbnails,
-  canImportVideoToPremiere,
-  canOpenCropOptionsForVideo,
-  canQueuePremiereExportVideo,
   canStartMigration,
   // canRefresh,
   // fileName,
@@ -872,12 +859,9 @@ export function VideoTable({
   isGeneratingThumbnails,
   // isPersisted,
   onClearData,
-  onAutoCropSelectedClick,
-  onAutoCropVideoClick,
-  onExportToPremiereClick,
-  onExportVideoToPremiereClick,
+  onAutoFixSelectedClick,
+  onEditInPremiereClick,
   onGenerateThumbnailsClick,
-  onImportVideoToPremiereClick,
   onMigrateNewEditsClick,
   onGlobalFilterChange,
   onRemoveVideosClick,
@@ -922,7 +906,6 @@ export function VideoTable({
   const [previewFrameError, setPreviewFrameError] = useState<string | null>(
     null,
   )
-  const [cropActionVideo, setCropActionVideo] = useState<VideoRow | null>(null)
   const [previewFrameMessage, setPreviewFrameMessage] = useState<string | null>(
     null,
   )
@@ -1003,22 +986,18 @@ export function VideoTable({
       ),
     [selectedVideos],
   )
-  const selectedCropReviewVideos = useMemo(
-    () => selectedVideos.filter(isCropReviewCandidate),
-    [selectedVideos],
-  )
   const selectedVideoCountLabel =
     selectedVideos.length > 0
       ? ` - ${selectedVideos.length.toLocaleString()} Selected (${formatSelectedVideoSize(selectedVideosSizeMB)})`
       : ''
-  const exportButtonLabel =
+  const editButtonLabel =
     selectedVideos.length > 0
-      ? `Export to Premiere (${selectedVideos.length.toLocaleString()})`
-      : 'Export to Premiere'
-  const cropOptionsButtonLabel =
-    selectedCropReviewVideos.length > 0
-      ? `Crop Options (${selectedCropReviewVideos.length.toLocaleString()})`
-      : 'Crop Options'
+      ? `Edit in Premiere (${selectedVideos.length.toLocaleString()})`
+      : 'Edit in Premiere'
+  const autoFixButtonLabel =
+    selectedVideos.length > 0
+      ? `Auto-Fix (${selectedVideos.length.toLocaleString()})`
+      : 'Auto-Fix'
   const thumbnailButtonLabel =
     selectedVideos.length > 0
       ? `Generate Thumbnails (${selectedVideos.length.toLocaleString()})`
@@ -1169,30 +1148,6 @@ export function VideoTable({
       setPreviewFetchMode(null)
     }
   }
-  const closeCropActionDialog = () => {
-    setCropActionVideo(null)
-  }
-
-  const handleCropActionAuto = () => {
-    if (!cropActionVideo) {
-      return
-    }
-
-    const video = cropActionVideo
-    closeCropActionDialog()
-    onAutoCropVideoClick(video)
-  }
-
-  const handleCropActionPremiere = () => {
-    if (!cropActionVideo) {
-      return
-    }
-
-    const video = cropActionVideo
-    closeCropActionDialog()
-    onImportVideoToPremiereClick(video)
-  }
-
   const actionsTemplate = (row: VideoRow) => (
     <div className="row-actions">
       <Button
@@ -1211,36 +1166,6 @@ export function VideoTable({
       </Button>
       <Button
         type="button"
-        aria-label="Export to Premiere"
-        size="small"
-        severity="success"
-        raised
-        disabled={!canQueuePremiereExportVideo(row)}
-        className="row-action-button"
-        onClick={(event) => {
-          event.stopPropagation()
-          onExportVideoToPremiereClick(row)
-        }}
-      >
-        <FontAwesomeIcon icon={faArrowUpFromBracket} />
-      </Button>
-      <Button
-        type="button"
-        aria-label="Crop options"
-        size="small"
-        severity="warning"
-        raised
-        disabled={!canOpenCropOptionsForVideo(row)}
-        className="row-action-button"
-        onClick={(event) => {
-          event.stopPropagation()
-          setCropActionVideo(row)
-        }}
-      >
-        <FontAwesomeIcon icon={faCrop} />
-      </Button>
-      <Button
-        type="button"
         aria-label="Remove from table"
         size="small"
         severity="danger"
@@ -1253,33 +1178,6 @@ export function VideoTable({
       >
         <FontAwesomeIcon icon={faCircleMinus} />
       </Button>
-    </div>
-  )
-  const cropActionDialogFooter = (
-    <div className="crop-action-dialog-actions">
-      <Button
-        type="button"
-        label="Cancel"
-        severity="info"
-        raised
-        onClick={closeCropActionDialog}
-      />
-      <Button
-        type="button"
-        label="Auto"
-        severity="warning"
-        raised
-        disabled={!cropActionVideo || !isAutoCropCandidate(cropActionVideo)}
-        onClick={handleCropActionAuto}
-      />
-      <Button
-        type="button"
-        label="Premiere"
-        severity="success"
-        raised
-        disabled={!cropActionVideo || !canImportVideoToPremiere(cropActionVideo)}
-        onClick={handleCropActionPremiere}
-      />
     </div>
   )
 
@@ -1307,6 +1205,24 @@ export function VideoTable({
         </label>
         <Button
           type="button"
+          label={editButtonLabel}
+          severity="help"
+          raised
+          disabled={!canEditSelectedInPremiere}
+          title="Import selected videos into the open Premiere project for manual editing."
+          onClick={onEditInPremiereClick}
+        />
+        <Button
+          type="button"
+          label={autoFixButtonLabel}
+          severity="warning"
+          raised
+          disabled={!canAutoFixSelected}
+          title="Normalize selected videos with FFmpeg."
+          onClick={onAutoFixSelectedClick}
+        />
+        <Button
+          type="button"
           label={thumbnailButtonLabel}
           severity="info"
           raised
@@ -1317,22 +1233,6 @@ export function VideoTable({
           }
           loading={isGeneratingThumbnails}
           onClick={() => onGenerateThumbnailsClick(visibleVideoRows)}
-        />
-        <Button
-          type="button"
-          label={exportButtonLabel}
-          severity="help"
-          raised
-          disabled={!canExportToPremiere}
-          onClick={onExportToPremiereClick}
-        />
-        <Button
-          type="button"
-          label={cropOptionsButtonLabel}
-          severity="warning"
-          raised
-          disabled={!canAutoCropSelected}
-          onClick={onAutoCropSelectedClick}
         />
         <Button
           type="button"
@@ -1587,22 +1487,6 @@ export function VideoTable({
           style={{ width: '12%' }}
         />
       </DataTable>
-      <Dialog
-        header="Crop Options"
-        visible={Boolean(cropActionVideo)}
-        modal
-        dismissableMask
-        draggable={false}
-        resizable={false}
-        className="crop-action-dialog"
-        footer={cropActionDialogFooter}
-        onHide={closeCropActionDialog}
-      >
-        <p>
-          Try auto-crop for {cropActionVideo?.fileName ?? 'this video'}, or
-          import the original video into Premiere Pro for manual cropping.
-        </p>
-      </Dialog>
       <Dialog
         visible={Boolean(detailVideo)}
         modal

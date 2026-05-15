@@ -329,6 +329,69 @@ export type AutoCropResultResponse = {
   items: AutoCropResultItem[]
 }
 
+export type AutoFixProfileId = 'standard' | 'high-quality'
+
+export type AutoFixAction = 'normalize' | 'crop-normalize'
+
+export type AutoFixProgress = {
+  jobId: string | null
+  status: 'idle' | 'starting' | 'running' | 'complete' | 'error'
+  phase: string | null
+  totalVideos: number | null
+  processedVideos: number
+  currentFile: string | null
+  currentProfile: AutoFixProfileId | null
+  currentAction: AutoFixAction | null
+  message: string | null
+  succeeded: number
+  failed: number
+  outputDirectory: string | null
+}
+
+export type AutoFixProgressPayload = Partial<
+  Omit<AutoFixProgress, 'status'>
+> & {
+  jobId?: string
+  status?: string
+}
+
+export type AutoFixStartResponse = {
+  jobId?: string
+  message?: string
+  outputDirectory?: string
+  status?: string
+  totalVideos?: number
+}
+
+export type AutoFixResultItem = {
+  id?: string | null
+  sourcePath: string
+  outputPath?: string | null
+  fileName: string
+  outputFileName?: string | null
+  status: 'success' | 'failed'
+  profileId?: AutoFixProfileId | null
+  profileLabel?: string | null
+  cropped?: boolean
+  error?: string | null
+}
+
+export type AutoFixResultResponse = {
+  jobId: string
+  status: 'complete' | 'error'
+  outputDirectory: string
+  summary: {
+    requested: number
+    succeeded: number
+    failed: number
+    standardProfileCount: number
+    highQualityProfileCount: number
+    croppedCount: number
+    normalizedOnlyCount: number
+  }
+  items: AutoFixResultItem[]
+}
+
 export type ThumbnailScope = 'selected' | 'all'
 
 export type ThumbnailProgress = {

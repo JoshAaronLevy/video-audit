@@ -17,6 +17,10 @@ const {
   validateAutoCropRequest,
 } = require("./utils/autoCrop");
 const {
+  runAutoFix,
+  validateAutoFixRequest,
+} = require("./utils/autoFix");
+const {
   executeMigration,
   scanMigration,
 } = require("./utils/videoMigration");
@@ -74,6 +78,7 @@ const upload = multer({
 });
 const jobs = new Map();
 const autoCropJobs = new Map();
+const autoFixJobs = new Map();
 const migrationPlans = new Map();
 const migrationJobs = new Map();
 const thumbnailJobs = new Map();
@@ -984,6 +989,142 @@ async function runAutoCropJob(jobId) {
   }
 }
 
+function createAutoFixJob({ videos, destinationRoot, outputDirectory }) {
+  const id = `auto-fix-${crypto.randomUUID()}`;
+  const job = {
+    id,
+    status: "queued",
+    phase: "queued",
+    destinationRoot,
+    outputDirectory,
+    totalVideos: videos.length,
+    processedVideos: 0,
+    succeeded: 0,
+    failed: 0,
+    currentFile: "",
+    currentProfile: null,
+    currentAction: null,
+    message: "Auto-Fix job queued.",
+    videos,
+    result: null,
+    error: null,
+    abortController: new AbortController(),
+    listeners: new Set(),
+  };
+
+  autoFixJobs.set(id, job);
+  return job;
+}
+
+function serializeAutoFixJob(job) {
+  return {
+    jobId: job.id,
+    status: job.status,
+    phase: job.phase,
+    destinationRoot: job.destinationRoot,
+    outputDirectory: job.outputDirectory,
+    totalVideos: job.totalVideos,
+    processedVideos: job.processedVideos,
+    succeeded: job.succeeded,
+    failed: job.failed,
+    currentFile: job.currentFile,
+    currentProfile: job.currentProfile,
+    currentAction: job.currentAction,
+    message: job.message,
+    error: job.error,
+  };
+}
+
+function broadcastAutoFix(job, eventName, data = serializeAutoFixJob(job)) {
+  for (const listener of job.listeners) {
+    listener(eventName, data);
+  }
+}
+
+function updateAutoFixJobFromProgress(job, progress) {
+  if (job.abortController.signal.aborted) return;
+
+  job.status = progress.phase === "complete" ? "complete" : "running";
+  job.phase = progress.phase ?? job.phase;
+  job.outputDirectory = progress.outputDirectory ?? job.outputDirectory;
+  job.totalVideos = progress.totalVideos ?? job.totalVideos;
+  job.processedVideos = progress.processedVideos ?? job.processedVideos;
+  job.succeeded = progress.succeeded ?? job.succeeded;
+  job.failed = progress.failed ?? job.failed;
+  job.currentFile = progress.currentFile ?? job.currentFile;
+  job.currentProfile = progress.currentProfile ?? job.currentProfile;
+  job.currentAction = progress.currentAction ?? job.currentAction;
+  job.message = progress.message ?? job.message;
+}
+
+async function runAutoFixJob(jobId) {
+  const job = autoFixJobs.get(jobId);
+  if (!job) return;
+
+  job.status = "running";
+  job.phase = "normalizing";
+  job.message = "Auto-fixing selected videos...";
+  broadcastAutoFix(job, "progress");
+
+  try {
+    const result = await runAutoFix({
+      videos: job.videos,
+      outputDirectory: job.outputDirectory,
+      signal: job.abortController.signal,
+      onProgress(progress) {
+        if (job.abortController.signal.aborted) return;
+
+        updateAutoFixJobFromProgress(job, progress);
+
+        if (progress.phase !== "complete") {
+          broadcastAutoFix(job, "progress");
+        }
+      },
+    });
+
+    job.status = "complete";
+    job.phase = "complete";
+    job.outputDirectory = result.outputDirectory;
+    job.totalVideos = result.summary.requested;
+    job.processedVideos = result.summary.requested;
+    job.succeeded = result.summary.succeeded;
+    job.failed = result.summary.failed;
+    job.currentFile = "";
+    job.currentProfile = null;
+    job.currentAction = null;
+    job.message = "Auto-Fix complete.";
+    job.result = result;
+
+    broadcastAutoFix(job, "complete", {
+      ...serializeAutoFixJob(job),
+      summary: result.summary,
+    });
+  } catch (error) {
+    if (
+      job.abortController.signal.aborted ||
+      error.name === "AbortError" ||
+      error.message === "Auto-Fix canceled."
+    ) {
+      job.status = "canceled";
+      job.phase = "canceled";
+      job.currentFile = "";
+      job.currentProfile = null;
+      job.currentAction = null;
+      job.message = "Auto-Fix canceled.";
+
+      broadcastAutoFix(job, "canceled", serializeAutoFixJob(job));
+      return;
+    }
+
+    job.status = "error";
+    job.phase = "error";
+    job.error = error.message;
+    job.message = error.message;
+
+    broadcastAutoFix(job, "error", serializeAutoFixJob(job));
+  }
+}
+
 function createMigrationJob(plan) {
   const job = {
     id: plan.migrationId,
@@ -1644,6 +1785,120 @@ app.get("/api/adjustments/auto-crop/:jobId/result", (req, res) => {
     summary: job.result.summary,
     outputDir: job.result.outputDir,
     manifestPath: job.result.manifestPath,
+    items: job.result.items,
+  });
+});
+
+app.post("/api/auto-fix", async (req, res) => {
+  const validation = await validateAutoFixRequest(req.body);
+
+  if (!validation.ok) {
+    res.status(400).json({
+      status: "invalid_request",
+      message: validation.error,
+    });
+    return;
+  }
+
+  const job = createAutoFixJob({
+    videos: validation.videos,
+    destinationRoot: validation.destinationRoot,
+    outputDirectory: validation.outputDirectory,
+  });
+
+  setImmediate(() => {
+    runAutoFixJob(job.id);
+  });
+
+  res.status(202).json({
+    jobId: job.id,
+    status: "started",
+    totalVideos: job.totalVideos,
+    destinationRoot: job.destinationRoot,
+    outputDirectory: job.outputDirectory,
+  });
+});
+
+app.get("/api/auto-fix/:jobId/events", (req, res) => {
+  const job = autoFixJobs.get(req.params.jobId);
+
+  if (!job) {
+    res.status(404).json({
+      status: "not_found",
+      message: "Auto-Fix job not found.",
+    });
+    return;
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+
+  const listener = (eventName, data) => {
+    sendSse(res, eventName, data);
+
+    if (
+      eventName === "complete" ||
+      eventName === "error" ||
+      eventName === "canceled"
+    ) {
+      job.listeners.delete(listener);
+      res.end();
+    }
+  };
+
+  job.listeners.add(listener);
+  sendSse(res, "progress", serializeAutoFixJob(job));
+
+  if (job.status === "complete") {
+    listener("complete", {
+      ...serializeAutoFixJob(job),
+      summary: job.result?.summary,
+    });
+    return;
+  }
+
+  if (job.status === "error") {
+    listener("error", serializeAutoFixJob(job));
+    return;
+  }
+
+  if (job.status === "canceled") {
+    listener("canceled", serializeAutoFixJob(job));
+    return;
+  }
+
+  req.on("close", () => {
+    job.listeners.delete(listener);
+  });
+});
+
+app.get("/api/auto-fix/:jobId/result", (req, res) => {
+  const job = autoFixJobs.get(req.params.jobId);
+
+  if (!job) {
+    res.status(404).json({
+      status: "not_found",
+      message: "Auto-Fix job not found.",
+    });
+    return;
+  }
+
+  if (job.status !== "complete") {
+    res.json({
+      jobId: job.id,
+      status: job.status,
+      message: "Auto-Fix is not complete yet.",
+    });
+    return;
+  }
+
+  res.json({
+    jobId: job.id,
+    status: job.status,
+    outputDirectory: job.result.outputDirectory,
+    summary: job.result.summary,
     items: job.result.items,
   });
 });

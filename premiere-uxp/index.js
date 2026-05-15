@@ -358,13 +358,6 @@ function getCurrentStatus(projectInfo) {
     };
   }
 
-  if (!state.outputFolder) {
-    return {
-      status: BRIDGE_STATUS.notReady,
-      message: "Export output folder is not connected.",
-    };
-  }
-
   if (!projectInfo.activeProjectName) {
     return {
       status: BRIDGE_STATUS.notReady,
